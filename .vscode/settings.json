@@ -1,0 +1,10 @@
+{
+  "github.copilot.chat.commitMessageGeneration.instructions": [
+    {
+      "file": ".github/commit-instructions.md"
+    },
+    {
+      "text": "Add lots of emojis in the commit."
+    }
+  ]
+}
