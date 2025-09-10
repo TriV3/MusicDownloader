@@ -1,5 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, RedirectResponse
+from pathlib import Path
+from typing import List, Dict, Any
 
 # Support both execution modes:
 # - "uvicorn backend.app.main:app" (package-relative imports)
@@ -21,9 +25,35 @@ except Exception:  # pragma: no cover
     from api.v1.oauth_spotify import router as oauth_spotify_router  # type: ignore
     from db.session import engine, Base  # type: ignore
 
-app = FastAPI(title="Music Downloader API", version="0.1.0")
+tags_metadata = [
+    {"name": "health", "description": "Health checks and basic service info."},
+    {"name": "sources", "description": "Manage source accounts (Spotify, SoundCloud, Manual)."},
+    {"name": "playlists", "description": "Manage playlists from providers and local metadata."},
+    {"name": "tracks", "description": "Manage track catalog and normalized metadata."},
+    {"name": "oauth", "description": "OAuth token storage and provider-specific flows."},
+]
 
-# CORS: autoriser le front Vite en dev
+app = FastAPI(
+    title="Music Downloader API",
+    version="0.1.0",
+    description=(
+        "API for ingesting music from external providers (e.g., Spotify),"
+        " searching/downloading candidates (e.g., YouTube), and managing a local library."
+    ),
+    openapi_tags=tags_metadata,
+    # Serve docs under /api/* to match API prefix
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+    contact={
+        "name": "Music Downloader",
+    },
+    license_info={
+        "name": "MIT",
+    },
+)
+
+# CORS: allow Vite frontend during development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -47,6 +77,29 @@ app.include_router(oauth_router, prefix="/api/v1")
 app.include_router(oauth_spotify_router, prefix="/api/v1")
 
 
-@app.get("/")
-def root():
+@app.get("/api")
+def api_root():
     return {"name": "Music Downloader API", "version": "0.1.0"}
+
+# Convenience redirects for default FastAPI docs paths
+@app.get("/docs", include_in_schema=False)
+async def docs_redirect():
+    return RedirectResponse(url="/api/docs")
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc_redirect():
+    return RedirectResponse(url="/api/redoc")
+
+# Static files (built frontend). When building the frontend, files will be placed under
+# backend/app/static. We mount them at / and provide an SPA fallback.
+static_dir = Path(__file__).resolve().parent / "static"
+if static_dir.exists():
+    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="frontend")
+
+    # Optional explicit fallback for SPA routes not starting with /api
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str):  # type: ignore[unused-argument]
+        index_file = static_dir / "index.html"
+        if index_file.exists():
+            return FileResponse(str(index_file))
+        return {"detail": "Not Found"}

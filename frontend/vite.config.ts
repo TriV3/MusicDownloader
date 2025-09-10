@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  base: '/',
   server: {
     port: 5173,
     proxy: {
@@ -12,5 +13,10 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-  }
+  },
+  build: {
+    // Output to the backend static folder so FastAPI can serve the SPA
+    outDir: '../backend/app/static',
+    emptyOutDir: true,
+  },
 })
