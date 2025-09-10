@@ -16,6 +16,7 @@ try:
     from .api.v1.oauth import router as oauth_router  # type: ignore
     from .api.v1.oauth_spotify import router as oauth_spotify_router  # type: ignore
     from .db.session import engine, Base  # type: ignore
+    from .core.config import settings  # type: ignore
 except Exception:  # pragma: no cover
     from api.v1.health import router as health_router  # type: ignore
     from api.v1.sources import router as sources_router  # type: ignore
@@ -24,6 +25,7 @@ except Exception:  # pragma: no cover
     from api.v1.oauth import router as oauth_router  # type: ignore
     from api.v1.oauth_spotify import router as oauth_spotify_router  # type: ignore
     from db.session import engine, Base  # type: ignore
+    from core.config import settings  # type: ignore
 
 tags_metadata = [
     {"name": "health", "description": "Health checks and basic service info."},
@@ -34,8 +36,8 @@ tags_metadata = [
 ]
 
 app = FastAPI(
-    title="Music Downloader API",
-    version="0.1.0",
+    title=settings.app_name,
+    version=settings.version,
     description=(
         "API for ingesting music from external providers (e.g., Spotify),"
         " searching/downloading candidates (e.g., YouTube), and managing a local library."
@@ -45,9 +47,7 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
-    contact={
-        "name": "Music Downloader",
-    },
+    contact={"name": settings.app_name},
     license_info={
         "name": "MIT",
     },
@@ -56,7 +56,7 @@ app = FastAPI(
 # CORS: allow Vite frontend during development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -79,7 +79,7 @@ app.include_router(oauth_spotify_router, prefix="/api/v1")
 
 @app.get("/api")
 def api_root():
-    return {"name": "Music Downloader API", "version": "0.1.0"}
+    return {"name": settings.app_name, "version": settings.version}
 
 # Convenience redirects for default FastAPI docs paths
 @app.get("/docs", include_in_schema=False)

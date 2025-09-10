@@ -7,7 +7,13 @@ from sqlalchemy.orm import DeclarativeBase
 import os
 
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./music.db")
+try:
+    # Prefer importing centralized settings (which loads .env)
+    from ..core.config import settings  # type: ignore
+except Exception:  # pragma: no cover
+    from core.config import settings  # type: ignore
+
+DATABASE_URL = settings.database_url
 
 
 class Base(DeclarativeBase):

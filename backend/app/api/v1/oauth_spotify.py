@@ -18,11 +18,13 @@ try:
     from ...db.models.models import OAuthState, OAuthToken, SourceAccount, SourceProvider  # type: ignore
     from ...schemas.models import OAuthTokenRead  # type: ignore
     from ...utils.crypto import encrypt_text, decrypt_text  # type: ignore
+    from ...core.config import settings  # type: ignore
 except Exception:  # pragma: no cover
     from db.session import get_session  # type: ignore
     from db.models.models import OAuthState, OAuthToken, SourceAccount, SourceProvider  # type: ignore
     from schemas.models import OAuthTokenRead  # type: ignore
     from utils.crypto import encrypt_text, decrypt_text  # type: ignore
+    from core.config import settings  # type: ignore
 
 
 router = APIRouter(prefix="/oauth/spotify", tags=["oauth", "spotify"])
@@ -63,8 +65,8 @@ async def authorize(
     if not account or account.type != SourceProvider.spotify:
         raise HTTPException(status_code=404, detail="Spotify account not found")
 
-    client_id = _get_env("SPOTIFY_CLIENT_ID")
-    redirect_uri = _get_env("SPOTIFY_REDIRECT_URI")
+    client_id = settings.spotify_client_id or _get_env("SPOTIFY_CLIENT_ID")
+    redirect_uri = settings.spotify_redirect_uri or _get_env("SPOTIFY_REDIRECT_URI")
 
     code_verifier, code_challenge = _gen_pkce()
     state = secrets.token_urlsafe(16)
@@ -99,9 +101,9 @@ async def callback(
     state: str,
     session: AsyncSession = Depends(get_session),
 ):
-    client_id = _get_env("SPOTIFY_CLIENT_ID")
-    client_secret = _get_env("SPOTIFY_CLIENT_SECRET")
-    redirect_uri = _get_env("SPOTIFY_REDIRECT_URI")
+    client_id = settings.spotify_client_id or _get_env("SPOTIFY_CLIENT_ID")
+    client_secret = settings.spotify_client_secret or _get_env("SPOTIFY_CLIENT_SECRET")
+    redirect_uri = settings.spotify_redirect_uri or _get_env("SPOTIFY_REDIRECT_URI")
 
     # Lookup OAuthState
     result = await session.execute(select(OAuthState).where(OAuthState.state == state))
@@ -173,8 +175,8 @@ async def callback(
 
 @router.post("/refresh", response_model=OAuthTokenRead)
 async def refresh(account_id: int, session: AsyncSession = Depends(get_session)):
-    client_id = _get_env("SPOTIFY_CLIENT_ID")
-    client_secret = _get_env("SPOTIFY_CLIENT_SECRET")
+    client_id = settings.spotify_client_id or _get_env("SPOTIFY_CLIENT_ID")
+    client_secret = settings.spotify_client_secret or _get_env("SPOTIFY_CLIENT_SECRET")
 
     result = await session.execute(
         select(OAuthToken).where(

@@ -16,7 +16,11 @@ py -m venv .venv
 pip install -r backend\requirements.txt
 ```
 
-2) Start the API server (pick one)
+2) Configure environment variables (optional)
+- Copy `backend/.env.example` to `backend/.env` and adjust values.
+- You can also set variables in your shell or IDE.
+
+3) Start the API server (pick one)
 ```
 # Option A: explicit app path
 uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
@@ -42,7 +46,7 @@ Notes:
 - The frontend uses relative URLs (e.g., `/api/v1/health`) during development, so no CORS tweaks are needed.
 
 ## Environment variables
-These can be set in your shell or via your IDE run configuration.
+Variables are loaded from `backend/.env` (via python-dotenv) and can be overridden by your shell or IDE run configuration.
 
 - `SECRET_KEY` (recommended): 32+ char string used to encrypt secrets (e.g., OAuth refresh tokens).
 - `DATABASE_URL` (optional): SQLAlchemy URL. Default is `sqlite+aiosqlite:///./music.db`.
