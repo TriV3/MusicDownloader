@@ -6,3 +6,4 @@ When available, take into account the README files and the documentation in the 
 Always update the README and documentation to reflect any relevant code changes.
 Always add tests for new features or bug fixes.
 The existing tests should be updated to reflect any changes in the code and must pass
+When you remove or replace code/comments, do not leave comment that refers to the old code.

@@ -20,7 +20,7 @@ def _split_csv(value: str | None) -> List[str]:
 
 class Settings(BaseModel):
     app_name: str = os.environ.get("APP_NAME", "Music Downloader API")
-    version: str = os.environ.get("APP_VERSION", "0.1.0")
+    version: str = os.environ.get("APP_VERSION", "0.0.5")
 
     # CORS
     cors_origins: List[str] = _split_csv(os.environ.get("CORS_ORIGINS")) or [

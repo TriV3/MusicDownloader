@@ -93,3 +93,6 @@ old/               # Legacy code kept for reference
 - Background worker/queue for downloads, and integration with tools like yt-dlp/ffmpeg.
 - Frontend pages for source linking, playlist browsing, search, and downloads management.
 - CI pipeline and optional DB migrations.
+
+## Changelog
+See `CHANGELOG.md` for released steps and the version mapping (`0.<phase>.<step>`).
