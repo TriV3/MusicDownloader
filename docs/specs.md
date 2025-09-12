@@ -84,6 +84,12 @@ Implementation notes:
 - UI: Identities list view and detail panel linked from track detail
 - UI: Form to edit identity fields and save changes
 
+Implementation notes:
+- Model extended with `fingerprint`, `created_at`, `updated_at`.
+- Endpoint base: `/api/v1/identities` supporting list filters: `track_id`, `has_fingerprint`, `created_from`, `created_to`.
+- Tracks auto-generate a manual identity on creation (`manual:{id}`).
+- Frontend basic panel (temporary) added to home for listing & editing identities.
+
 **Validation Criteria:**
 1. Identities can be created, listed, updated, and deleted
 2. Creating/Updating a track generates or updates an identity record

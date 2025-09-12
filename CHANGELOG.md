@@ -10,6 +10,13 @@ Versioning scheme:
 Unreleased
 - Planning and work in progress.
 
+0.1.2 — Phase 1 / Step 1.2: TrackIdentity Endpoints
+- Extended TrackIdentity model with fingerprint and timestamps.
+- Added CRUD API `/api/v1/identities` with filters (track_id, has_fingerprint, created range).
+- Auto creation of manual identity on track creation.
+- Frontend: Basic Identities panel with list, select track, edit identity.
+- Tests for identity CRUD, filters, and auto-create.
+
 0.1.1 — Phase 1 / Step 1.1: Track Normalization Utilities
 - Added normalization utilities to clean artists/title and extract flags (remix/edit, live, remaster).
 - Added duration helpers for matching (tolerance and delta).

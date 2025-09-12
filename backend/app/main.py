@@ -13,6 +13,7 @@ try:
     from .api.v1.sources import router as sources_router  # type: ignore
     from .api.v1.playlists import router as playlists_router  # type: ignore
     from .api.v1.tracks import router as tracks_router  # type: ignore
+    from .api.v1.identities import router as identities_router  # type: ignore
     from .api.v1.oauth import router as oauth_router  # type: ignore
     from .api.v1.oauth_spotify import router as oauth_spotify_router  # type: ignore
     from .db.session import engine, Base  # type: ignore
@@ -22,6 +23,7 @@ except Exception:  # pragma: no cover
     from api.v1.sources import router as sources_router  # type: ignore
     from api.v1.playlists import router as playlists_router  # type: ignore
     from api.v1.tracks import router as tracks_router  # type: ignore
+    from api.v1.identities import router as identities_router  # type: ignore
     from api.v1.oauth import router as oauth_router  # type: ignore
     from api.v1.oauth_spotify import router as oauth_spotify_router  # type: ignore
     from db.session import engine, Base  # type: ignore
@@ -73,6 +75,7 @@ app.include_router(health_router, prefix="/api/v1")
 app.include_router(sources_router, prefix="/api/v1")
 app.include_router(playlists_router, prefix="/api/v1")
 app.include_router(tracks_router, prefix="/api/v1")
+app.include_router(identities_router, prefix="/api/v1")
 app.include_router(oauth_router, prefix="/api/v1")
 app.include_router(oauth_spotify_router, prefix="/api/v1")
 

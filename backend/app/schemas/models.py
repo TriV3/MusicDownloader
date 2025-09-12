@@ -93,13 +93,23 @@ class TrackIdentityCreate(BaseModel):
     provider: SourceProvider
     provider_track_id: str
     provider_url: Optional[str] = None
+    fingerprint: Optional[str] = None
 
 
 class TrackIdentityRead(TrackIdentityCreate):
     id: int
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class TrackIdentityFilters(BaseModel):
+    track_id: Optional[int] = None
+    has_fingerprint: Optional[bool] = None
+    created_from: Optional[datetime] = None
+    created_to: Optional[datetime] = None
 
 
 class PlaylistTrackCreate(BaseModel):

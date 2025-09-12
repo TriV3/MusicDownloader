@@ -113,11 +113,16 @@ class TrackIdentity(Base):
     provider: Mapped[SourceProvider] = mapped_column(SAEnum(SourceProvider), nullable=False)
     provider_track_id: Mapped[str] = mapped_column(String(200), nullable=False)
     provider_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    fingerprint: Mapped[Optional[str]] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     track: Mapped[Track] = relationship(backref="identities")
 
     __table_args__ = (
         UniqueConstraint("provider", "provider_track_id", name="uq_provider_track"),
+        Index("ix_identity_track", "track_id"),
+        Index("ix_identity_provider_track", "provider", "track_id"),
     )
 
 
