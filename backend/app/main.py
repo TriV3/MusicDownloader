@@ -14,6 +14,7 @@ try:
     from .api.v1.playlists import router as playlists_router  # type: ignore
     from .api.v1.tracks import router as tracks_router  # type: ignore
     from .api.v1.identities import router as identities_router  # type: ignore
+    from .api.v1.candidates import router as candidates_router  # type: ignore
     from .api.v1.oauth import router as oauth_router  # type: ignore
     from .api.v1.oauth_spotify import router as oauth_spotify_router  # type: ignore
     from .db.session import engine, Base  # type: ignore
@@ -24,6 +25,7 @@ except Exception:  # pragma: no cover
     from api.v1.playlists import router as playlists_router  # type: ignore
     from api.v1.tracks import router as tracks_router  # type: ignore
     from api.v1.identities import router as identities_router  # type: ignore
+    from api.v1.candidates import router as candidates_router  # type: ignore
     from api.v1.oauth import router as oauth_router  # type: ignore
     from api.v1.oauth_spotify import router as oauth_spotify_router  # type: ignore
     from db.session import engine, Base  # type: ignore
@@ -69,6 +71,24 @@ async def on_startup():
     # Create tables (simple init, replace by migrations later)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Lightweight auto-migrations for legacy SQLite DBs (best-effort, replace with Alembic later)
+        try:  # pragma: no cover
+            result = await conn.exec_driver_sql("PRAGMA table_info(track_identities)")
+            cols = [row[1] for row in result.fetchall()]
+            alter_statements = []
+            if "fingerprint" not in cols:
+                alter_statements.append("ALTER TABLE track_identities ADD COLUMN fingerprint VARCHAR(500)")
+            if "created_at" not in cols:
+                alter_statements.append("ALTER TABLE track_identities ADD COLUMN created_at DATETIME")
+            if "updated_at" not in cols:
+                alter_statements.append("ALTER TABLE track_identities ADD COLUMN updated_at DATETIME")
+            for stmt in alter_statements:
+                try:
+                    await conn.exec_driver_sql(stmt)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 # Routes
 app.include_router(health_router, prefix="/api/v1")
@@ -76,6 +96,7 @@ app.include_router(sources_router, prefix="/api/v1")
 app.include_router(playlists_router, prefix="/api/v1")
 app.include_router(tracks_router, prefix="/api/v1")
 app.include_router(identities_router, prefix="/api/v1")
+app.include_router(candidates_router, prefix="/api/v1")
 app.include_router(oauth_router, prefix="/api/v1")
 app.include_router(oauth_spotify_router, prefix="/api/v1")
 

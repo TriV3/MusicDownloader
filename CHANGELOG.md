@@ -10,6 +10,21 @@ Versioning scheme:
 Unreleased
 - Planning and work in progress.
 
+0.1.3 — Phase 1 / Step 1.3: SearchCandidate Endpoints + Enhancements (Track Manager, Auto Normalization, Track Deletion)
+- Added CRUD API `/api/v1/candidates` with sorting (score desc, duration delta asc) and choose endpoint.
+- Added computed `duration_delta_sec` in responses.
+- Frontend: Candidates panel with track selection, sorting, choose action, manual add form.
+- Tests: Candidate creation, sorting, choose uniqueness, deletion.
+- Track creation no longer requires pre-computed normalized fields; backend auto-normalizes when omitted.
+- Added Track Manager UI component: create tracks with live normalization preview and list existing tracks.
+- Frontend refactored into modular components (NormalizationPlayground, TrackManager, IdentitiesPanel, CandidatesPanel).
+- Added auto-normalization test to ensure normalized fields are populated and manual identity auto-created.
+- Startup now performs a best-effort SQLite schema patch for legacy databases: adds missing `fingerprint`, `created_at`, `updated_at` columns to `track_identities` if absent (temporary until real migrations).
+- Added DELETE `/api/v1/tracks/{id}` endpoint with manual cascade removal (identities, candidates, downloads, playlist links, library files).
+- Frontend Track Manager: delete buttons per row + global event `tracks:changed` broadcast after create/delete.
+- Other panels (Identities, Candidates) auto-refresh track list on `tracks:changed`.
+- Extended CRUD test to cover track deletion and 404 verification.
+
 0.1.2 — Phase 1 / Step 1.2: TrackIdentity Endpoints
 - Extended TrackIdentity model with fingerprint and timestamps.
 - Added CRUD API `/api/v1/identities` with filters (track_id, has_fingerprint, created range).

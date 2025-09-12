@@ -73,3 +73,9 @@ async def test_tracks_crud():
         tid = r.json()["id"]
         r = await ac.get(f"/api/v1/tracks/{tid}")
         assert r.status_code == 200
+        # delete track
+        r = await ac.delete(f"/api/v1/tracks/{tid}")
+        assert r.status_code == 204
+        # ensure gone
+        r = await ac.get(f"/api/v1/tracks/{tid}")
+        assert r.status_code == 404

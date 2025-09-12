@@ -75,8 +75,8 @@ class TrackCreate(BaseModel):
     year: Optional[int] = None
     explicit: bool = False
     cover_url: Optional[str] = None
-    normalized_title: str
-    normalized_artists: str
+    normalized_title: Optional[str] = None
+    normalized_artists: Optional[str] = None
 
 
 class TrackRead(TrackCreate):
@@ -141,6 +141,7 @@ class SearchCandidateCreate(BaseModel):
 class SearchCandidateRead(SearchCandidateCreate):
     id: int
     created_at: datetime
+    duration_delta_sec: Optional[float] = None  # computed client convenience
 
     class Config:
         from_attributes = True
