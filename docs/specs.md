@@ -115,24 +115,35 @@ Implementation notes:
 3. Sorting by score/duration updates the visible order in the table
 4. Manual add by URL creates a candidate visible immediately
 
-### Operational Note: Lightweight Auto-Migration (Fingerprint Column)
-Beginning with version 0.1.2+ the `TrackIdentity` model includes a `fingerprint` column. Existing local SQLite databases created before this field was introduced will be missing the column, which caused a runtime error on insert ("no column named fingerprint"). A temporary startup hook now inspects `PRAGMA table_info(track_identities)` and issues:
-
-```
-ALTER TABLE track_identities ADD COLUMN fingerprint VARCHAR(500)
-```
-
-when the column is absent. This is a best-effort shim until a proper migration system (e.g. Alembic) is added. If the shim fails or the schema becomes inconsistent, you can:
-1. Delete the local `music.db` (dev data) and restart, or
-2. Manually apply the ALTER TABLE above using a SQLite client.
-
-Future Phase: replace this logic with structured migrations; remove the ad-hoc ALTER once Alembic is integrated.
-
 ### Step 1.4: JSON Import (Manual Source)
 - Endpoint/UI to upload JSON describing tracks
 - Create tracks + identities from uploaded data
 - UI: Drag-and-drop import page with schema hint and preview table
 - UI: Dry-run mode showing what will be created/updated before confirming
+
+JSON Schema (English field names):
+
+Required fields per object:
+- artists (string)
+- title (string)
+- genre (string, non-empty)
+- bpm (integer > 0)
+
+Optional:
+- duration (string mm:ss) -> converted to duration_ms if provided
+
+Example:
+[
+	{"artists": "Sabrina Carpenter", "title": "Espresso", "genre": "Pop", "bpm": 120, "duration": "2:56"}
+]
+
+Duplicate detection uses the normalized (artists, title) pair; duplicates are skipped on actual import.
+Dry-run returns an items array with duplicate flag and counts.
+
+Implemented UI:
+- Added an Import tab (no client-side router dependency) with drag-and-drop JSON zone.
+- Provides Dry Run button (preview table with duplicate highlighting + errors list) and Confirm Import.
+- Minimal styling; future enhancements (pagination, inline editing) can be layered without breaking API.
 
 **Validation Criteria:**
 1. Sample JSON imports successfully and creates records

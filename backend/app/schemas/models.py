@@ -77,6 +77,8 @@ class TrackCreate(BaseModel):
     cover_url: Optional[str] = None
     normalized_title: Optional[str] = None
     normalized_artists: Optional[str] = None
+    genre: Optional[str] = None
+    bpm: Optional[int] = None
 
 
 class TrackRead(TrackCreate):

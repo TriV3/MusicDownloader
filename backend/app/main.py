@@ -13,6 +13,7 @@ try:
     from .api.v1.sources import router as sources_router  # type: ignore
     from .api.v1.playlists import router as playlists_router  # type: ignore
     from .api.v1.tracks import router as tracks_router  # type: ignore
+    from .api.v1.tracks_import import router as tracks_import_router  # type: ignore
     from .api.v1.identities import router as identities_router  # type: ignore
     from .api.v1.candidates import router as candidates_router  # type: ignore
     from .api.v1.oauth import router as oauth_router  # type: ignore
@@ -24,6 +25,7 @@ except Exception:  # pragma: no cover
     from api.v1.sources import router as sources_router  # type: ignore
     from api.v1.playlists import router as playlists_router  # type: ignore
     from api.v1.tracks import router as tracks_router  # type: ignore
+    from api.v1.tracks_import import router as tracks_import_router  # type: ignore
     from api.v1.identities import router as identities_router  # type: ignore
     from api.v1.candidates import router as candidates_router  # type: ignore
     from api.v1.oauth import router as oauth_router  # type: ignore
@@ -89,12 +91,29 @@ async def on_startup():
                     pass
         except Exception:
             pass
+        # Auto-migrate new Track columns (genre, bpm) if missing (Step 1.4)
+        try:  # pragma: no cover
+            result = await conn.exec_driver_sql("PRAGMA table_info(tracks)")
+            tcols = [row[1] for row in result.fetchall()]
+            if "genre" not in tcols:
+                try:
+                    await conn.exec_driver_sql("ALTER TABLE tracks ADD COLUMN genre VARCHAR(200)")
+                except Exception:
+                    pass
+            if "bpm" not in tcols:
+                try:
+                    await conn.exec_driver_sql("ALTER TABLE tracks ADD COLUMN bpm INTEGER")
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 # Routes
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(sources_router, prefix="/api/v1")
 app.include_router(playlists_router, prefix="/api/v1")
 app.include_router(tracks_router, prefix="/api/v1")
+app.include_router(tracks_import_router, prefix="/api/v1")
 app.include_router(identities_router, prefix="/api/v1")
 app.include_router(candidates_router, prefix="/api/v1")
 app.include_router(oauth_router, prefix="/api/v1")

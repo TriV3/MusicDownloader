@@ -97,6 +97,9 @@ class Track(Base):
     cover_url: Mapped[Optional[str]] = mapped_column(String(1000))
     normalized_title: Mapped[str] = mapped_column(String(500), index=True)
     normalized_artists: Mapped[str] = mapped_column(String(500), index=True)
+    # Optional musical metadata (added by Step 1.4 JSON import feature)
+    genre: Mapped[Optional[str]] = mapped_column(String(200))
+    bpm: Mapped[Optional[int]] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
