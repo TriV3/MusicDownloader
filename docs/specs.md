@@ -66,11 +66,16 @@ Note on versioning:
 - UI: Normalization playground page to paste artist/title and preview normalized outputs in real time
 - UI: Inline normalization preview in track create/edit form
 
+Implementation notes:
+- Backend utilities added under `backend/app/utils/normalize.py`.
+- Public preview endpoint: `GET /api/v1/tracks/normalize/preview?artists=...&title=...`.
+- Frontend demo playground lives on the home page below the health check.
+
 **Validation Criteria:**
 1. Unit tests cover common patterns and edge cases (feat., remaster, live)
 2. Normalized output is deterministic for same inputs
-3. In the playground, typing updates normalized fields instantly without page refresh
-4. Track form shows a preview of normalized fields before save
+ 3. In the playground, typing updates normalized fields instantly without page refresh
+ 4. Track form shows a preview of normalized fields before save (basic demo provided; full form wiring in later steps)
 
 ### Step 1.2: TrackIdentity Endpoints
 - CRUD endpoints for identities

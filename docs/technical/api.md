@@ -1,3 +1,8 @@
+## Service meta
+
+- Info: `GET /api/v1/info` → `{ name, version }`
+  - Name and version are defined once in `backend/app/app_meta.py` and injected into settings.
+
 # API Overview
 
 Base URLs

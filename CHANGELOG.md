@@ -10,6 +10,13 @@ Versioning scheme:
 Unreleased
 - Planning and work in progress.
 
+0.1.1 — Phase 1 / Step 1.1: Track Normalization Utilities
+- Added normalization utilities to clean artists/title and extract flags (remix/edit, live, remaster).
+- Added duration helpers for matching (tolerance and delta).
+- New endpoint: `GET /api/v1/tracks/normalize/preview` to preview normalized output.
+- Frontend: Added a simple Normalization Playground to try normalization in real-time.
+- Tests: Unit tests for normalization logic and endpoint.
+
 0.0.5 — Phase 0 / Step 0.5: Test Suite Baseline
 - Added pytest with pytest-asyncio.
 - Implemented shared in-memory SQLite setup for tests and app lifecycle fixtures.

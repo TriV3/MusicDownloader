@@ -31,6 +31,7 @@ python run_api.py
 
 API root: http://localhost:8000/
 Health:   http://localhost:8000/api/v1/health
+Info:     http://localhost:8000/api/v1/info
 
 ### Frontend
 ```
@@ -85,6 +86,7 @@ old/               # Legacy code kept for reference
 - OAuth storage API and Spotify OAuth (PKCE) endpoints (authorize, callback, refresh) with encrypted refresh tokens.
 - React + Vite frontend with a health indicator and dev proxy to the API.
 - Pytest test suite (health, CRUD basics, crypto, mocked Spotify OAuth).
+- Single-source name/version (`backend/app/app_meta.py`) exposed via `/api/v1/info`.
 
 ## Next steps
 - Track normalization utilities applied server-side when creating tracks.

@@ -5,6 +5,10 @@ from typing import List
 
 from dotenv import load_dotenv
 from pydantic import BaseModel
+try:
+    from ..app_meta import __version__, __app_name__  # type: ignore
+except Exception:  # pragma: no cover
+    from app_meta import __version__, __app_name__  # type: ignore
 
 
 # Load environment variables from a .env file located at backend/.env (or project root)
@@ -19,8 +23,10 @@ def _split_csv(value: str | None) -> List[str]:
 
 
 class Settings(BaseModel):
-    app_name: str = os.environ.get("APP_NAME", "Music Downloader API")
-    version: str = os.environ.get("APP_VERSION", "0.0.5")
+    # Name is sourced from code, not environment
+    app_name: str = __app_name__
+    # Version is sourced from code, not environment
+    version: str = __version__
 
     # CORS
     cors_origins: List[str] = _split_csv(os.environ.get("CORS_ORIGINS")) or [
