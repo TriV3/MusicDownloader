@@ -1,4 +1,5 @@
 import React from 'react'
+import { Link } from 'react-router-dom'
 import type { NormalizationPreview } from './NormalizationPlayground'
 
 export type TrackRead = { id: number; title: string; artists: string; normalized_title: string; normalized_artists: string }
@@ -90,7 +91,10 @@ export const TrackManager: React.FC = () => {
               <td>{t.artists}</td>
               <td>{t.title}</td>
               <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{t.normalized_artists} – {t.normalized_title}</td>
-              <td><button onClick={() => remove(t.id)}>Delete</button></td>
+              <td style={{ display: 'flex', gap: 8 }}>
+                <Link to={`/tracks/${t.id}`}>View</Link>
+                <button onClick={() => remove(t.id)}>Delete</button>
+              </td>
             </tr>
           ))}
           {tracks.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', padding: 8 }}>No tracks</td></tr>}

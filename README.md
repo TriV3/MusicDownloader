@@ -46,6 +46,17 @@ Notes:
 - The Vite dev server proxies requests starting with `/api` to `http://localhost:8000` (configured in `frontend/vite.config.ts`).
 - The frontend uses relative URLs (e.g., `/api/v1/health`) during development, so no CORS tweaks are needed.
 
+Production build:
+- Run `npm run build` in `frontend/` to emit assets into `backend/app/static`.
+- The `backend/app/static` folder is ignored by Git (except for a `.gitkeep` placeholder). Build artifacts are not committed.
+
+Frontend navigation (React Router):
+- `/` Dashboard
+- `/tracks` Tracks list
+- `/tracks/:id` Track detail with tabs: `overview`, `identities`, `candidates`, `search`
+- `/import` JSON import workflow
+- `/tools` Normalization playground
+
 ## Environment variables
 Variables are loaded from `backend/.env` (via python-dotenv) and can be overridden by your shell or IDE run configuration.
 
@@ -55,6 +66,12 @@ Variables are loaded from `backend/.env` (via python-dotenv) and can be overridd
 	- `SPOTIFY_CLIENT_ID`
 	- `SPOTIFY_CLIENT_SECRET`
 	- `SPOTIFY_REDIRECT_URI` (e.g., `http://localhost:8000/api/v1/oauth/spotify/callback` or a frontend URL that forwards to the backend callback)
+
+- YouTube Search (Step 2.1):
+	- `YOUTUBE_SEARCH_LIMIT` (default 8) maximum results to request.
+	- `YOUTUBE_SEARCH_FAKE=1` return deterministic fake results (used in tests).
+
+Install `yt-dlp` locally (e.g., `pip install yt-dlp`) for real searches; it's not yet pinned in `backend/requirements.txt` until download steps.
 
 ## Testing
 
@@ -84,8 +101,13 @@ old/               # Legacy code kept for reference
 - Domain models: sources, playlists, tracks, identities, candidates, downloads, library files, OAuth tokens.
 - CRUD endpoints for sources, playlists, and tracks.
 - OAuth storage API and Spotify OAuth (PKCE) endpoints (authorize, callback, refresh) with encrypted refresh tokens.
-- React + Vite frontend with a health indicator and dev proxy to the API.
-- Pytest test suite (health, CRUD basics, crypto, mocked Spotify OAuth).
+- React + Vite frontend with panels: normalization playground, identities, YouTube search (scored), candidates list, JSON import.
+- Pytest test suite (health, CRUD basics, crypto, mocked Spotify OAuth, YouTube search scoring with fake results).
+- YouTube search endpoint: `GET /api/v1/tracks/{track_id}/youtube/search` params:
+	- `prefer_extended` (bool) boosts Extended/Club Mix results.
+	- `persist` (bool, default true) persists top scored results as candidates.
+	- `limit` (optional int) overrides search limit.
+	Scoring blends text token overlap, duration proximity, extended mix bonus, and small penalties for missing tokens.
 - Single-source name/version (`backend/app/app_meta.py`) exposed via `/api/v1/info`.
 
 ## Next steps

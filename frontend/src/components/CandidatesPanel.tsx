@@ -1,27 +1,14 @@
 import React from 'react'
-import type { Track } from './IdentitiesPanel'
+import { useParams } from 'react-router-dom'
 
 export type Candidate = { id: number; track_id: number; provider: string; external_id: string; url: string; title: string; score: number; duration_sec?: number; duration_delta_sec?: number; chosen: boolean }
 
 export const CandidatesPanel: React.FC = () => {
-  const [tracks, setTracks] = React.useState<Track[]>([])
-  const [selectedTrack, setSelectedTrack] = React.useState<number | null>(null)
+  const { id } = useParams()
+  const selectedTrack = id ? Number(id) : null
   const [candidates, setCandidates] = React.useState<Candidate[]>([])
   const [sort, setSort] = React.useState<'score' | 'duration_delta'>('score')
   const [manual, setManual] = React.useState({ provider: 'youtube', external_id: '', url: '', title: '', duration_sec: '', score: '' })
-
-  React.useEffect(() => {
-    const loadTracks = () => {
-      fetch('/api/v1/tracks/')
-        .then(r => r.json())
-        .then(d => setTracks(d))
-        .catch(() => {})
-    }
-    loadTracks()
-    const handler = () => loadTracks()
-    window.addEventListener('tracks:changed', handler)
-    return () => window.removeEventListener('tracks:changed', handler)
-  }, [])
 
   const load = React.useCallback(() => {
     if (selectedTrack == null) { setCandidates([]); return }
@@ -61,10 +48,6 @@ export const CandidatesPanel: React.FC = () => {
     <section style={{ border: '1px solid #ddd', padding: 16, borderRadius: 8 }}>
       <h2>Search Candidates</h2>
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-        <select value={selectedTrack ?? ''} onChange={e => setSelectedTrack(e.target.value ? Number(e.target.value) : null)}>
-          <option value=''>-- Select Track --</option>
-          {tracks.map(t => <option key={t.id} value={t.id}>{t.id}: {t.artists} - {t.title}</option>)}
-        </select>
         <select value={sort} onChange={e => setSort(e.target.value as any)}>
           <option value='score'>Sort: Score</option>
           <option value='duration_delta'>Sort: Duration Δ</option>

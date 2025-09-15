@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
@@ -14,8 +14,11 @@ try:
         PlaylistTrack,
         LibraryFile,
     )  # type: ignore
-    from ...schemas.models import TrackCreate, TrackRead  # type: ignore
-    from ...utils.normalize import normalize_track  # type: ignore
+    from ...schemas.models import TrackCreate, TrackRead, SearchCandidateRead  # type: ignore
+    from ...utils.normalize import normalize_track, duration_delta_sec  # type: ignore
+    from ...utils.youtube_search import search_youtube  # type: ignore
+    from ...db.models.models import SearchCandidate, SearchProvider  # type: ignore
+    from ...core.config import settings  # type: ignore
 except Exception:  # pragma: no cover
     from db.session import get_session  # type: ignore
     from db.models.models import (
@@ -27,8 +30,11 @@ except Exception:  # pragma: no cover
         PlaylistTrack,
         LibraryFile,
     )  # type: ignore
-    from schemas.models import TrackCreate, TrackRead  # type: ignore
-    from utils.normalize import normalize_track  # type: ignore
+    from schemas.models import TrackCreate, TrackRead, SearchCandidateRead  # type: ignore
+    from utils.normalize import normalize_track, duration_delta_sec  # type: ignore
+    from utils.youtube_search import search_youtube  # type: ignore
+    from db.models.models import SearchCandidate, SearchProvider  # type: ignore
+    from core.config import settings  # type: ignore
 
 
 router = APIRouter(prefix="/tracks", tags=["tracks"])
@@ -126,3 +132,75 @@ async def preview_normalization(
         "is_live": result.is_live,
         "is_remaster": result.is_remaster,
     }
+
+
+@router.get("/{track_id}/youtube/search", response_model=List[SearchCandidateRead])
+async def youtube_search_track(
+    track_id: int,
+    session: AsyncSession = Depends(get_session),
+    prefer_extended: bool = Query(False, description="Prefer Extended/Club Mix variants"),
+    persist: bool = Query(True, description="Persist top scored results as candidates"),
+    limit: Optional[int] = Query(None, description="Override search limit"),
+):
+    track = await session.get(Track, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    max_results = limit or settings.youtube_search_limit
+    scored = search_youtube(track.artists, track.title, track.duration_ms, prefer_extended=prefer_extended, limit=max_results)
+
+    # Optionally persist as SearchCandidate (avoid duplicates by external_id)
+    out: List[SearchCandidateRead] = []
+    if persist:
+        existing_stmt = select(SearchCandidate.external_id).where(
+            SearchCandidate.track_id == track.id,
+            SearchCandidate.provider == SearchProvider.youtube,
+        )
+        existing = set((await session.execute(existing_stmt)).scalars().all())
+        rank_cut = 10  # persist at most top 10 even if search limit larger
+        for sr in scored[:rank_cut]:
+            if sr.external_id in existing:
+                continue
+            sc = SearchCandidate(
+                track_id=track.id,
+                provider=SearchProvider.youtube,
+                external_id=sr.external_id,
+                url=sr.url,
+                title=sr.title,
+                channel=sr.channel,
+                duration_sec=sr.duration_sec,
+                score=sr.score,
+            )
+            session.add(sc)
+        await session.flush()
+        # Re-query all youtube candidates for this track sorted by score desc
+        result = await session.execute(
+            select(SearchCandidate).where(
+                SearchCandidate.track_id == track.id,
+                SearchCandidate.provider == SearchProvider.youtube,
+            ).order_by(desc(SearchCandidate.score))
+        )
+        rows: List[SearchCandidate] = result.scalars().all()
+        for c in rows:
+            # Build pydantic object manually to add duration_delta_sec like candidates API does
+            from ..v1.candidates import _attach_computed  # type: ignore
+            out.append(_attach_computed(track.duration_ms, c))
+    else:
+        # Return transient scored list
+        for sr in scored:
+            out.append(
+                SearchCandidateRead(
+                    id=0,  # transient placeholder
+                    track_id=track.id,
+                    provider=SearchProvider.youtube,  # type: ignore[arg-type]
+                    external_id=sr.external_id,
+                    url=sr.url,
+                    title=sr.title,
+                    channel=sr.channel,
+                    duration_sec=sr.duration_sec,
+                    score=sr.score,
+                    chosen=False,
+                    created_at=track.created_at,
+                    duration_delta_sec=duration_delta_sec(track.duration_ms, sr.duration_sec * 1000) if (track.duration_ms and sr.duration_sec) else None,  # type: ignore[arg-type]
+                )
+            )
+    return out

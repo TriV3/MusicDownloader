@@ -160,6 +160,13 @@ Implemented UI:
 - Provide frontend UI to trigger search, view candidates, and select a preferred one (details to be defined)
 - Default search provider: yt-dlp `ytsearch` (no API key required)
 
+Implementation (completed):
+- Added `utils.youtube_search` with deterministic scoring: token overlap + duration proximity + optional extended mix bonus.
+- Endpoint: `GET /api/v1/tracks/{track_id}/youtube/search?prefer_extended=&persist=&limit=`.
+- Persistence creates `SearchCandidate` rows (deduplicated by external_id) when `persist=true`.
+- Fake mode via `YOUTUBE_SEARCH_FAKE=1` supplies deterministic sample results for tests.
+- Frontend `YouTubeSearchPanel` allows selecting track, toggling extended mix preference, choosing persistence, and viewing results.
+
 **Validation Criteria:**
 1. API returns scored YouTube candidates for a given track
 2. UI exposes a toggle to prefer Extended/Club Mix

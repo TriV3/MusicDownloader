@@ -43,5 +43,9 @@ class Settings(BaseModel):
     spotify_client_secret: str | None = os.environ.get("SPOTIFY_CLIENT_SECRET")
     spotify_redirect_uri: str | None = os.environ.get("SPOTIFY_REDIRECT_URI")
 
+    # YouTube search (Step 2.1)
+    youtube_search_limit: int = int(os.environ.get("YOUTUBE_SEARCH_LIMIT", "8"))
+    # When set (env only) YOUTUBE_SEARCH_FAKE=1 forces fake results (handled in utils.youtube_search)
+
 
 settings = Settings()

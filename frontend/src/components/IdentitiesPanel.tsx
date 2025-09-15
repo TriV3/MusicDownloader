@@ -1,27 +1,15 @@
 import React from 'react'
+import { useParams } from 'react-router-dom'
 
 export type Track = { id: number; title: string; artists: string }
 export type Identity = { id: number; track_id: number; provider: string; provider_track_id: string; provider_url?: string; fingerprint?: string; created_at?: string }
 
 export const IdentitiesPanel: React.FC = () => {
-  const [tracks, setTracks] = React.useState<Track[]>([])
-  const [selectedTrack, setSelectedTrack] = React.useState<number | null>(null)
+  const { id } = useParams()
+  const selectedTrack = id ? Number(id) : null
   const [identities, setIdentities] = React.useState<Identity[]>([])
   const [editing, setEditing] = React.useState<Identity | null>(null)
   const [form, setForm] = React.useState<Partial<Identity>>({})
-
-  React.useEffect(() => {
-    const load = () => {
-      fetch('/api/v1/tracks/')
-        .then(r => r.json())
-        .then(d => setTracks(d))
-        .catch(() => {})
-    }
-    load()
-    const handler = () => load()
-    window.addEventListener('tracks:changed', handler)
-    return () => window.removeEventListener('tracks:changed', handler)
-  }, [])
 
   React.useEffect(() => {
     if (selectedTrack == null) { setIdentities([]); return }
@@ -57,23 +45,36 @@ export const IdentitiesPanel: React.FC = () => {
   return (
     <section style={{ border: '1px solid #ddd', padding: 16, borderRadius: 8 }}>
       <h2>Track Identities</h2>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-        <select value={selectedTrack ?? ''} onChange={e => setSelectedTrack(e.target.value ? Number(e.target.value) : null)}>
-          <option value=''>-- Select Track --</option>
-          {tracks.map(t => <option key={t.id} value={t.id}>{t.id}: {t.artists} - {t.title}</option>)}
-        </select>
-      </div>
       {selectedTrack && (
         <div style={{ display: 'grid', gap: 6 }}>
           {identities.map(i => (
             <div key={i.id} style={{ padding: 8, border: '1px solid #ccc', borderRadius: 4, background: '#fafafa' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <strong>{i.provider}:{i.provider_track_id}</strong>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div>
+                  <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{i.provider}</span>
+                  <span> • </span>
+                  {i.provider_url
+                    ? <a href={i.provider_url} target="_blank" rel="noreferrer" title={i.provider_url}>{i.provider_track_id}</a>
+                    : <code>{i.provider_track_id}</code>}
+                </div>
                 <button onClick={() => startEdit(i)}>Edit</button>
               </div>
-              <small>ID {i.id} • {i.fingerprint ? 'fingerprinted' : 'no fingerprint'}</small>
+              <small>
+                ID {i.id}
+                <span> • </span>
+                {i.fingerprint ? 'Fingerprint: present' : 'Fingerprint: none'}
+                {i.created_at && <>
+                  <span> • </span>
+                  <span>{new Date(i.created_at).toLocaleString()}</span>
+                </>}
+              </small>
             </div>
           ))}
+          {identities.length === 0 && (
+            <div style={{ padding: 8, border: '1px dashed #ccc', borderRadius: 4, color: '#666' }}>
+              No identities for this track.
+            </div>
+          )}
         </div>
       )}
       {editing && (
