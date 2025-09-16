@@ -126,6 +126,11 @@ old/               # Legacy code kept for reference
 - Worker:
 	- Starts on app startup by default; set `DISABLE_DOWNLOAD_WORKER=1` to disable (used in tests)
 	- Updates status from queued → running → done/failed with timestamps
+	- Real downloads when `simulate_seconds=0` or in normal startup; set `DOWNLOAD_FAKE=1` to create a small placeholder file without yt-dlp/ffmpeg.
+	- Configure binaries and output:
+		- `LIBRARY_DIR` (default `./library`) to store downloaded files
+		- `YT_DLP_BIN` and `FFMPEG_BIN` if not on PATH
+		- `PREFERRED_AUDIO_FORMAT` (default `mp3`)
 - Testing:
 	- Test-only helpers (not shown in OpenAPI):
 		- `POST /api/v1/downloads/_restart_worker` with `{ "concurrency": 2, "simulate_seconds": 0.05 }`

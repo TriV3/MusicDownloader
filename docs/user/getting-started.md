@@ -62,3 +62,9 @@ Track covers
 - If you persist YouTube search results for a track without a cover, the top result's thumbnail is used.
 - Choosing a YouTube candidate also fills the cover if missing.
 - You can also refresh the cover via the API: `POST /api/v1/tracks/{id}/cover/refresh`.
+
+Downloads
+- Use the "Ready to download" panel to quickly enqueue tracks that already have a chosen YouTube candidate.
+- Toggle "Include downloaded" to also show tracks that were already downloaded if you want to re-download them.
+- You can enqueue a download without typing numeric IDs: start typing a track title or artist in the search box and pick the result; the form will auto-fill the Track ID.
+- Optionally, you can provide a specific Candidate ID if you want to override the chosen one.

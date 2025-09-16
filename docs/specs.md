@@ -209,6 +209,17 @@ Notes:
 - File naming convention and output directory settings
 - UI: Progress indicator on per-download row; link to open file location
 
+Implementation (in progress):
+- Added `utils.downloader.perform_download` supporting Fake mode via `DOWNLOAD_FAKE=1` and real yt-dlp path via `YT_DLP_BIN`/`FFMPEG_BIN`.
+- Worker now performs actual downloads when `simulate_seconds=0` in `_restart_worker` or on startup.
+- Output directory configurable via `LIBRARY_DIR` (default `library/` at project root). Files are named `Artists - Title.ext` with de-dup suffix.
+- Checksums (SHA-256) and file size recorded on `Download` row.
+- Minimal test `test_download_yt_dlp_fake.py` validates fake mode end-to-end without external tools.
+ - Tag policy: we always drop source tags (`-map_metadata -1`) and write tags from our Track (artist, title, album, genre, bpm). MP3 uses ID3v2.3 with ID3v1 compatibility. Source metadata via yt‑dlp `--add-metadata` is disabled by default.
+ - Cover policy: we embed a thumbnail only when the track has no preferred cover. When Spotify integration is available, its album image will take priority; YouTube thumbnail is used as a fallback.
+
+Tagging is stubbed for now; ID3/metadata writing will be completed alongside Step 2.4.
+
 **Validation Criteria:**
 1. Downloaded file exists with expected filename and format
 2. Tags include artist, title, album (if provided), cover when available

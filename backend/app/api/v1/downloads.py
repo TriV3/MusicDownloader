@@ -41,6 +41,57 @@ async def list_downloads(
     return result.scalars().all()
 
 
+# Accept both with and without trailing slash
+@router.get("", response_model=List[DownloadRead])
+async def list_downloads_no_slash(
+    session: AsyncSession = Depends(get_session),
+    status: Optional[DownloadStatus] = Query(None),
+    track_id: Optional[int] = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    return await list_downloads(session=session, status=status, track_id=track_id, limit=limit, offset=offset)
+
+
+@router.get("/with_tracks", response_model=List[dict])
+async def list_downloads_with_tracks(
+    session: AsyncSession = Depends(get_session),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """Return downloads enriched with track artists/title for UI convenience."""
+    stmt = (
+        select(Download, Track)
+        .join(Track, Download.track_id == Track.id)
+        .order_by(desc(Download.created_at))
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = (await session.execute(stmt)).all()
+    out: list[dict] = []
+    for d, t in rows:
+        out.append({
+            "id": d.id,
+            "track_id": d.track_id,
+            "candidate_id": d.candidate_id,
+            "provider": d.provider,
+            "status": d.status,
+            "filepath": d.filepath,
+            "format": d.format,
+            "bitrate_kbps": d.bitrate_kbps,
+            "filesize_bytes": d.filesize_bytes,
+            "checksum_sha256": d.checksum_sha256,
+            "error_message": d.error_message,
+            "started_at": d.started_at,
+            "finished_at": d.finished_at,
+            "created_at": d.created_at,
+            # Enrichment
+            "track_title": t.title,
+            "track_artists": t.artists,
+        })
+    return out
+
+
 @router.get("/{download_id}", response_model=DownloadRead)
 async def get_download(download_id: int, session: AsyncSession = Depends(get_session)):
     item = await session.get(Download, download_id)

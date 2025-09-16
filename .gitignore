@@ -18,6 +18,10 @@ package-lock.json
 backend/app/static/*
 !backend/app/static/.gitkeep
 
+# Downloaded media library (keep README)
+/library/*
+!/library/README.md
+
 # Editors/OS
 .DS_Store
 Thumbs.db

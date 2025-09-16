@@ -116,10 +116,26 @@ async def on_startup():
     # Start download worker(s) unless disabled (e.g., in tests)
     import os
     if os.environ.get("DISABLE_DOWNLOAD_WORKER", "0") not in {"1", "true", "TRUE", "True"}:
-        # Concurrency can later be added to settings; use 2 as a safe default
+        # Allow configuring concurrency and simulation via env; default to real downloads (simulate_seconds=0)
         from .worker import downloads_worker as dw  # lazy import to set global
-        dw.download_queue = DownloadQueue(concurrency=2, simulate_seconds=0.5)
+        try:
+            conc = int(os.environ.get("DOWNLOAD_CONCURRENCY", "2"))
+        except Exception:
+            conc = 2
+        try:
+            sim_seconds = float(os.environ.get("DOWNLOAD_SIMULATE_SECONDS", "0"))
+        except Exception:
+            sim_seconds = 0.0
+        dw.download_queue = DownloadQueue(concurrency=conc, simulate_seconds=sim_seconds)
+        print(f"[startup] Download worker started concurrency={conc} simulate_seconds={sim_seconds}")
         await dw.download_queue.start()
+
+    # Log effective library directory
+    try:
+        from .core.config import settings as _settings  # type: ignore
+        print(f"[startup] LIBRARY_DIR={_settings.library_dir}")
+    except Exception:
+        pass
 
     # Enqueue any downloads that are already queued at startup
     try:  # pragma: no cover

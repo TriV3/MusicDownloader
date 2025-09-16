@@ -46,9 +46,30 @@ router = APIRouter(prefix="/tracks", tags=["tracks"])
 
 
 @router.get("/", response_model=List[TrackRead])
-async def list_tracks(session: AsyncSession = Depends(get_session)):
-    result = await session.execute(select(Track))
+async def list_tracks(
+    session: AsyncSession = Depends(get_session),
+    q: Optional[str] = Query(None, description="Filter by title/artists contains (case-insensitive)"),
+    limit: int = Query(100, ge=1, le=500),
+):
+    stmt = select(Track).order_by(desc(Track.updated_at)).limit(limit)
+    if q:
+        from sqlalchemy import or_, func
+        like = f"%{q.lower()}%"
+        stmt = select(Track).where(
+            or_(func.lower(Track.title).like(like), func.lower(Track.artists).like(like))
+        ).order_by(desc(Track.updated_at)).limit(limit)
+    result = await session.execute(stmt)
     return result.scalars().all()
+
+
+# Accept both with and without trailing slash
+@router.get("", response_model=List[TrackRead])
+async def list_tracks_no_slash(
+    session: AsyncSession = Depends(get_session),
+    q: Optional[str] = Query(None, description="Filter by title/artists contains (case-insensitive)"),
+    limit: int = Query(100, ge=1, le=500),
+):
+    return await list_tracks(session=session, q=q, limit=limit)
 
 
 @router.post("/", response_model=TrackRead)
@@ -72,6 +93,33 @@ async def create_track(payload: TrackCreate, session: AsyncSession = Depends(get
     session.add(identity)
     await session.flush()
     return track
+
+
+@router.get("/ready_for_download", response_model=List[TrackRead])
+async def ready_for_download(
+    session: AsyncSession = Depends(get_session),
+    include_downloaded: bool = Query(False, description="Include tracks that already have a successful download"),
+):
+    """Return tracks that have a chosen candidate. By default excludes tracks that already have a done download."""
+    # Tracks with chosen candidate
+    cand_stmt = select(SearchCandidate.track_id).where(SearchCandidate.chosen.is_(True))
+    cand_ids = set((await session.execute(cand_stmt)).scalars().all())
+    if not cand_ids:
+        return []
+    # Optionally exclude tracks with a 'done' download
+    ready_ids: list[int]
+    if include_downloaded:
+        ready_ids = list(cand_ids)
+    else:
+        from ...db.models.models import Download, DownloadStatus  # type: ignore
+        done_stmt = select(Download.track_id).where(Download.status == DownloadStatus.done)
+        done_ids = set((await session.execute(done_stmt)).scalars().all())
+        ready_ids = list(cand_ids - done_ids)
+    if not ready_ids:
+        return []
+    q = select(Track).where(Track.id.in_(ready_ids)).order_by(desc(Track.updated_at))
+    rows = (await session.execute(q)).scalars().all()
+    return rows
 
 
 @router.delete("/{track_id}", status_code=204)

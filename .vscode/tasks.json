@@ -14,6 +14,20 @@
 				"$pytest-internal"
 			],
 			"group": "test"
+		},
+		{
+			"label": "Run backend tests (venv)",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"venv\\Scripts\\python -m pytest -q backend/tests/test_download_yt_dlp_fake.py backend/tests/test_download_queue.py"
+			],
+			"problemMatcher": [
+				"$pytest"
+			],
+			"group": "test"
 		}
 	]
 }
