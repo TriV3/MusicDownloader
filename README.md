@@ -82,6 +82,16 @@ pytest -q
 
 The test suite uses a shared in-memory SQLite database and runs FastAPI startup/shutdown once per session to auto-create tables.
 
+## In‑App Audio Player
+
+- Stream endpoint: `GET /api/v1/library/files/{id}/stream` with HTTP Range (206), ETag/Last-Modified, and correct audio MIME.
+- Frontend Downloads page shows a Play button per LibraryFile and a fixed Now Playing audio bar with native seek/volume.
+
+If you test locally on Windows cmd.exe, ensure you activate the project virtual environment at the repo root:
+```
+d:\Dev\Projects\music_downloader\.venv\Scripts\activate
+```
+
 ## Project structure (excerpt)
 ```
 backend/

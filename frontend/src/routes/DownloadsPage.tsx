@@ -31,6 +31,7 @@ export const DownloadsPage: React.FC = () => {
   const [libFiles, setLibFiles] = React.useState<any[]>([])
   const [libLoading, setLibLoading] = React.useState(false)
   const [libTrackId, setLibTrackId] = React.useState('')
+  const [nowPlayingId, setNowPlayingId] = React.useState<number | null>(null)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -130,6 +131,38 @@ export const DownloadsPage: React.FC = () => {
     }
   }
 
+  const resyncLibrary = async () => {
+    const r = await fetch('/api/v1/library/files/resync', { method: 'POST' })
+    if (r.ok) {
+      loadLibrary()
+      window.dispatchEvent(new CustomEvent('library:changed'))
+    } else {
+      const t = await r.text()
+      alert('Resync failed: ' + r.status + (t ? ('\n' + t) : ''))
+    }
+  }
+
+  const scanLibrary = async () => {
+    const r = await fetch('/api/v1/library/files/scan', { method: 'POST' })
+    if (r.ok) {
+      try {
+        const data = await r.json()
+        alert(`Scan completed\nDirectory: ${data.directory}\nScanned: ${data.scanned}\nMatched: ${data.matched}\nAdded: ${data.added}\nUpdated: ${data.updated}\nSkipped: ${data.skipped}`)
+      } catch {}
+      loadLibrary()
+      window.dispatchEvent(new CustomEvent('library:changed'))
+    } else {
+      const t = await r.text()
+      alert('Scan failed: ' + r.status + (t ? ('\n' + t) : ''))
+    }
+  }
+
+  const playFile = (id: number) => {
+    setNowPlayingId(id)
+    // The <audio> element will pick up the new src and play; autoplay may be blocked
+    // so user can click Play if needed.
+  }
+
   const revealInExplorer = async (id: number) => {
     const r = await fetch(`/api/v1/library/files/${id}/reveal`, { method: 'POST' })
     if (!r.ok) {
@@ -147,8 +180,9 @@ export const DownloadsPage: React.FC = () => {
     }
   }
 
+  const bottomPad = nowPlayingId ? 104 : 0
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
+    <div style={{ display: 'grid', gap: 12, paddingBottom: bottomPad }}>
       <h2>Downloads</h2>
       <div style={{ border: '1px solid #ddd', padding: 10, borderRadius: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -253,6 +287,8 @@ export const DownloadsPage: React.FC = () => {
             style={{ width: 160 }}
           />
           <button onClick={loadLibrary} disabled={libLoading}>{libLoading ? 'Loading…' : 'Refresh'}</button>
+          <button onClick={resyncLibrary}>Resync</button>
+          <button onClick={scanLibrary}>Scan folder</button>
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -278,6 +314,7 @@ export const DownloadsPage: React.FC = () => {
                 <td>{typeof f.file_size === 'number' ? (f.file_size > 1024 * 1024 ? (f.file_size / (1024*1024)).toFixed(2) + ' MB' : (f.file_size / 1024).toFixed(1) + ' KB') : '-'}</td>
                 <td>{f.file_mtime ? new Date(f.file_mtime).toLocaleString() : '-'}</td>
                 <td style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => playFile(f.id)}>Play</button>
                   <a href={`/api/v1/library/files/${f.id}/download`} target="_blank" rel="noreferrer">Download</a>
                   <button onClick={() => revealInExplorer(f.id)}>Reveal</button>
                   <button onClick={() => copyPath(f.filepath)}>Copy path</button>
@@ -289,6 +326,24 @@ export const DownloadsPage: React.FC = () => {
           </tbody>
         </table>
       </div>
+      {/* Now Playing bar (only when playing) */}
+      {nowPlayingId != null && (
+        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, background: '#111', color: '#fff', padding: 8, zIndex: 1000, boxShadow: '0 -2px 8px rgba(0,0,0,0.3)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>
+              {`Now Playing • File #${nowPlayingId}`}
+            </div>
+            <button onClick={() => setNowPlayingId(null)} style={{ fontSize: 12 }}>Hide</button>
+          </div>
+          <audio
+            key={nowPlayingId}
+            controls
+            style={{ width: '100%' }}
+            src={`/api/v1/library/files/${nowPlayingId}/stream`}
+            preload="metadata"
+          />
+        </div>
+      )}
     </div>
   )
 }

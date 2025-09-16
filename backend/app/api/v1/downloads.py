@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,7 +92,8 @@ async def list_downloads_with_tracks(
             "track_title": t.title,
             "track_artists": t.artists,
         })
-    return out
+    # Ensure all datetimes/enums are JSON-serializable
+    return JSONResponse(content=jsonable_encoder(out))
 
 
 @router.get("/{download_id}", response_model=DownloadRead)

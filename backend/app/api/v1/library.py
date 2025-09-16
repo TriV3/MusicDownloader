@@ -3,13 +3,28 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response
 from sqlalchemy import select, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
 import platform
 import subprocess
+import os
+from email.utils import formatdate
+from datetime import datetime
+from typing import AsyncIterator, Optional
+
+try:
+    from ...utils.http_range import parse_http_range, build_content_range_header, pick_audio_mime_from_path  # type: ignore
+    from ...core.config import settings  # type: ignore
+    from ...utils.normalize import normalize_track  # type: ignore
+    from ...db.models.models import Track  # type: ignore
+except Exception:  # pragma: no cover
+    from utils.http_range import parse_http_range, build_content_range_header, pick_audio_mime_from_path  # type: ignore
+    from core.config import settings  # type: ignore
+    from utils.normalize import normalize_track  # type: ignore
+    from db.models.models import Track  # type: ignore
 
 try:  # package mode
     from ...db.session import get_session  # type: ignore
@@ -28,7 +43,7 @@ router = APIRouter(prefix="/library/files", tags=["library"])
 async def list_library_files(
     session: AsyncSession = Depends(get_session),
     track_id: Optional[int] = Query(None),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(500, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
     stmt = select(LibraryFile)
@@ -44,7 +59,7 @@ async def list_library_files(
 async def list_library_files_no_slash(
     session: AsyncSession = Depends(get_session),
     track_id: Optional[int] = Query(None),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(500, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
     return await list_library_files(session=session, track_id=track_id, limit=limit, offset=offset)
@@ -121,3 +136,266 @@ async def reveal_in_explorer(file_id: int, session: AsyncSession = Depends(get_s
     except Exception as ex:  # pragma: no cover - hard to simulate in tests
         raise HTTPException(status_code=500, detail=f"Failed to open Explorer: {ex}")
     return {"ok": True, "path": str(path)}
+
+
+@router.get("/{file_id}/stream")
+async def stream_library_file(file_id: int, request: Request, session: AsyncSession = Depends(get_session)):
+    """Stream a library file with HTTP Range support for in-browser playback/seek.
+
+    - Supports a single byte range (sufficient for <audio> seek behavior)
+    - Returns 200 for full content, 206 for partial
+    - Provides ETag/Last-Modified/Cache-Control and Accept-Ranges headers
+    """
+    item = await session.get(LibraryFile, file_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="LibraryFile not found")
+    if not item.filepath:
+        raise HTTPException(status_code=404, detail="File path is missing")
+    path = Path(item.filepath)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    stat = path.stat()
+    file_size = stat.st_size
+    last_modified = formatdate(stat.st_mtime, usegmt=True)
+
+    # Prefer DB checksum for strong-ish ETag; otherwise use size+mtime as weak validator
+    checksum = item.checksum_sha256
+    etag = f'W/"sha256-{checksum}"' if checksum else f'W/"{stat.st_mtime_ns}-{file_size}"'
+
+    # Handle If-None-Match for simple client cache validation
+    inm = request.headers.get("if-none-match")
+    if inm and inm.strip() == etag:
+        return Response(status_code=304, headers={
+            "ETag": etag,
+            "Last-Modified": last_modified,
+            "Cache-Control": "public, max-age=3600",
+        })
+
+    # Determine content-type
+    media_type = pick_audio_mime_from_path(str(path))
+
+    # Parse Range header
+    range_header = request.headers.get("range")
+    try:
+        byte_range = parse_http_range(range_header, file_size)
+    except ValueError:
+        return Response(status_code=416, headers={
+            "Accept-Ranges": "bytes",
+            "Content-Range": f"bytes */{file_size}",
+            "ETag": etag,
+            "Last-Modified": last_modified,
+            "Cache-Control": "public, max-age=3600",
+        })
+
+    if byte_range is None:
+        status_code = 200
+        start, end = 0, file_size - 1
+    else:
+        status_code = 206
+        start, end = byte_range
+
+    content_length = end - start + 1
+
+    def file_iter(p: Path, start_byte: int, end_byte: int, chunk_size: int = 64 * 1024):
+        with p.open("rb") as f:
+            f.seek(start_byte)
+            remaining = end_byte - start_byte + 1
+            while remaining > 0:
+                to_read = min(chunk_size, remaining)
+                chunk = f.read(to_read)
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    headers = {
+        "Accept-Ranges": "bytes",
+        "ETag": etag,
+        "Last-Modified": last_modified,
+        "Cache-Control": "public, max-age=3600",
+        "Content-Length": str(content_length),
+    }
+    if status_code == 206:
+        headers["Content-Range"] = build_content_range_header(start, end, file_size)
+
+    return StreamingResponse(file_iter(path, start, end), status_code=status_code, media_type=media_type, headers=headers)
+
+
+@router.post("/resync", tags=["library"], summary="Rebuild LibraryFile entries from completed downloads", include_in_schema=False)
+async def resync_library_files(session: AsyncSession = Depends(get_session)):
+    """Best-effort maintenance endpoint that scans completed downloads and ensures LibraryFile rows exist.
+
+    Useful if the UI shows no library files due to earlier worker failures; it will upsert entries
+    for any download with a filepath that exists on disk.
+    """
+    try:
+        from ...db.models.models import Download, DownloadStatus, LibraryFile  # type: ignore
+        from sqlalchemy import select as _select
+    except Exception:  # pragma: no cover
+        from db.models.models import Download, DownloadStatus, LibraryFile  # type: ignore
+        from sqlalchemy import select as _select
+
+    result = await session.execute(
+        _select(Download).where(Download.status == DownloadStatus.done)
+    )
+    rows = result.scalars().all()
+    added = 0
+    updated = 0
+    for dl in rows:
+        if not dl.filepath:
+            continue
+        p = Path(dl.filepath)
+        if not p.exists():
+            continue
+        try:
+            st = p.stat()
+            mtime = datetime.utcfromtimestamp(st.st_mtime)
+            size = int(st.st_size)
+        except Exception:
+            mtime = datetime.utcnow()
+            size = getattr(dl, "filesize_bytes", 0) or 0
+
+        res2 = await session.execute(_select(LibraryFile).where(LibraryFile.filepath == str(p)))
+        lf = res2.scalars().first()
+        if lf:
+            lf.track_id = dl.track_id
+            lf.file_mtime = mtime
+            lf.file_size = size
+            lf.checksum_sha256 = dl.checksum_sha256
+            lf.exists = True
+            updated += 1
+        else:
+            lf = LibraryFile(
+                track_id=dl.track_id,
+                filepath=str(p),
+                file_mtime=mtime,
+                file_size=size,
+                checksum_sha256=dl.checksum_sha256,
+                exists=True,
+            )
+            session.add(lf)
+            added += 1
+    await session.flush()
+    return {"ok": True, "added": added, "updated": updated}
+
+
+def _is_audio_file(path: Path) -> bool:
+    return path.suffix.lower() in {".mp3", ".m4a", ".aac", ".flac", ".wav", ".opus", ".webm"}
+
+
+async def _infer_track_id_from_filename(session: AsyncSession, filename: str) -> Optional[int]:
+    name = Path(filename).stem
+    # Expect pattern: "Artists - Title"
+    if " - " not in name:
+        return None
+    artists, title = name.split(" - ", 1)
+    artists = artists.strip()
+    title = title.strip()
+    if not artists or not title:
+        return None
+    norm = normalize_track(artists, title)
+    from sqlalchemy import select as _select, desc as _desc
+    res = await session.execute(
+        _select(Track)
+        .where(Track.normalized_artists == norm.normalized_artists, Track.normalized_title == norm.normalized_title)
+        .order_by(_desc(Track.updated_at))
+    )
+    t = res.scalars().first()
+    return t.id if t else None
+
+
+@router.post("/scan", tags=["library"], summary="Scan library directory and upsert LibraryFile entries")
+async def scan_library(
+    session: AsyncSession = Depends(get_session),
+    compute_checksum: bool = Query(False, description="Compute checksum_sha256 (slower)"),
+    max_files: int = Query(2000, ge=1, le=10000),
+):
+    """Walk the configured library directory and upsert LibraryFile rows for files that match an existing Track.
+
+    Matching strategy: infer (artists, title) from filename pattern "Artists - Title.ext" and match by normalized fields.
+    Only files with known audio extensions are considered. Files that do not match an existing Track are skipped.
+    """
+    try:
+        from ...db.models.models import LibraryFile  # type: ignore
+        from sqlalchemy import select as _select
+    except Exception:  # pragma: no cover
+        from db.models.models import LibraryFile  # type: ignore
+        from sqlalchemy import select as _select
+
+    # Determine library dir
+    lib_dir = Path(os.environ.get("LIBRARY_DIR") or settings.library_dir).resolve()
+    if not lib_dir.exists() or not lib_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Library directory not found: {lib_dir}")
+
+    scanned = 0
+    matched = 0
+    added = 0
+    updated = 0
+    skipped = 0
+
+    # Walk directory
+    for root, _, files in os.walk(lib_dir):
+        for fn in files:
+            if scanned >= max_files:
+                break
+            p = Path(root) / fn
+            if not _is_audio_file(p):
+                continue
+            scanned += 1
+            track_id = await _infer_track_id_from_filename(session, p.name)
+            if not track_id:
+                skipped += 1
+                continue
+            matched += 1
+            try:
+                st = p.stat()
+                mtime = datetime.utcfromtimestamp(st.st_mtime)
+                size = int(st.st_size)
+            except Exception:
+                mtime = datetime.utcnow()
+                size = 0
+
+            checksum = None
+            if compute_checksum:
+                # Lazy import to avoid overhead if not requested
+                import hashlib
+                def _sha256_file(path: Path) -> str:
+                    h = hashlib.sha256()
+                    with path.open("rb") as f:
+                        for chunk in iter(lambda: f.read(8192), b""):
+                            h.update(chunk)
+                    return h.hexdigest()
+                checksum = _sha256_file(p)
+
+            res = await session.execute(_select(LibraryFile).where(LibraryFile.filepath == str(p)))
+            lf = res.scalars().first()
+            if lf:
+                lf.track_id = track_id
+                lf.file_mtime = mtime
+                lf.file_size = size
+                if compute_checksum:
+                    lf.checksum_sha256 = checksum
+                lf.exists = True
+                updated += 1
+            else:
+                lf = LibraryFile(
+                    track_id=track_id,
+                    filepath=str(p),
+                    file_mtime=mtime,
+                    file_size=size,
+                    checksum_sha256=checksum,
+                    exists=True,
+                )
+                session.add(lf)
+                added += 1
+    await session.flush()
+    return {
+        "ok": True,
+        "directory": str(lib_dir),
+        "scanned": scanned,
+        "matched": matched,
+        "added": added,
+        "updated": updated,
+        "skipped": skipped,
+    }

@@ -249,7 +249,12 @@ Implementation (completed):
 - Frontend: Player UI using HTML5 `<audio>` (or waveform component)
 	- Now Playing bar with play/pause, seek slider, elapsed/remaining time, volume
 	- Play from LibraryFile entries; keyboard shortcuts optional
-- Integration: Ensure dev/prod serve Range requests correctly; CORS/dev proxy compatible
+- Integration: Dev proxy forwards headers; backend serves Range correctly.
+
+Implementation (completed):
+- Added `/api/v1/library/files/{id}/stream` with single-range support, ETag/Last-Modified/Cache-Control, and proper MIME.
+- Frontend Downloads page now lists Library files with a Play button and a fixed Now Playing bar using the stream endpoint.
+- Tests cover full (200) and partial (206) responses and headers.
 
 **Validation Criteria:**
 1. Stream endpoint supports Range and seeking without full re-download
