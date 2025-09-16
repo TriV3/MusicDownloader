@@ -22,19 +22,58 @@ export type TrackRead = {
 
 export const TrackManager: React.FC = () => {
   const [tracks, setTracks] = React.useState<TrackRead[]>([])
+  const [downloadedIds, setDownloadedIds] = React.useState<Set<number>>(new Set())
   const [rawArtists, setRawArtists] = React.useState('')
   const [rawTitle, setRawTitle] = React.useState('')
   const [preview, setPreview] = React.useState<NormalizationPreview | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const [reloading, setReloading] = React.useState(false)
 
   const loadTracks = React.useCallback(() => {
+    setReloading(true)
     fetch('/api/v1/tracks/')
       .then(r => r.json())
       .then(d => setTracks(d))
       .catch(() => {})
+      .finally(() => setReloading(false))
   }, [])
 
   React.useEffect(() => { loadTracks() }, [loadTracks])
+
+  // Load library files to mark downloaded tracks
+  const loadLibraryFlags = React.useCallback(async () => {
+    try {
+      const r = await fetch('/api/v1/library/files?limit=500')
+      if (!r.ok) return
+      const files = await r.json()
+      const ids = new Set<number>()
+      for (const f of files) {
+        if (typeof f.track_id === 'number') ids.add(f.track_id)
+      }
+      setDownloadedIds(ids)
+    } catch {}
+  }, [])
+
+  React.useEffect(() => { loadLibraryFlags() }, [loadLibraryFlags])
+
+  // Auto-refresh periodically so cover updates (from downloads) appear
+  React.useEffect(() => {
+    const id = setInterval(() => { loadTracks(); loadLibraryFlags() }, 3000)
+    return () => clearInterval(id)
+  }, [loadTracks, loadLibraryFlags])
+
+  // Refresh when other parts of app signal changes
+  React.useEffect(() => {
+    const handler = () => { loadTracks(); loadLibraryFlags() }
+    window.addEventListener('tracks:changed', handler)
+    window.addEventListener('library:changed', handler)
+    window.addEventListener('downloads:changed', handler)
+    return () => {
+      window.removeEventListener('tracks:changed', handler)
+      window.removeEventListener('library:changed', handler)
+      window.removeEventListener('downloads:changed', handler)
+    }
+  }, [loadTracks, loadLibraryFlags])
 
   // Live preview normalization
   React.useEffect(() => {
@@ -80,10 +119,11 @@ export const TrackManager: React.FC = () => {
   return (
     <section style={{ border: '1px solid #ddd', padding: 16, borderRadius: 8 }}>
       <h2>Track Manager</h2>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 8, alignItems: 'center' }}>
         <input placeholder='Artists' value={rawArtists} onChange={e => setRawArtists(e.target.value)} style={{ flex: 1 }} />
         <input placeholder='Title' value={rawTitle} onChange={e => setRawTitle(e.target.value)} style={{ flex: 1 }} />
         <button disabled={!rawArtists || !rawTitle || loading} onClick={create}>Create</button>
+        <button onClick={() => { loadTracks(); loadLibraryFlags() }} disabled={reloading}>{reloading ? 'Refreshing…' : 'Refresh'}</button>
       </div>
       {preview && (
         <div style={{ marginBottom: 12, fontSize: 13, fontFamily: 'ui-monospace, monospace', background: '#f7f7f7', padding: 8, borderRadius: 4 }}>
@@ -94,6 +134,7 @@ export const TrackManager: React.FC = () => {
         <thead>
           <tr style={{ textAlign: 'left' }}>
             <th>ID</th>
+            <th>DL</th>
             <th>Cover</th>
             <th>Artists</th>
             <th>Title</th>
@@ -109,6 +150,9 @@ export const TrackManager: React.FC = () => {
           {tracks.map(t => (
             <tr key={t.id}>
               <td>{t.id}</td>
+              <td title={downloadedIds.has(t.id) ? 'Downloaded' : 'Not downloaded'}>
+                {downloadedIds.has(t.id) ? '✔' : ''}
+              </td>
               <td>
                 {t.cover_url ? (
                   <img src={t.cover_url} alt="cover" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4 }} />

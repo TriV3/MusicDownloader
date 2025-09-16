@@ -114,6 +114,69 @@ class DownloadQueue:
                     print(f"[worker] No outcome produced for id={job.download_id} (simulate or error earlier)")
                 dl.status = DownloadStatus.done
                 dl.finished_at = datetime.utcnow()
+                # Upsert LibraryFile entry for this track/path
+                try:
+                    from ..db.models.models import LibraryFile  # type: ignore
+                    from pathlib import Path
+                    if dl.filepath:
+                        p = Path(dl.filepath)
+                        try:
+                            st = p.stat()
+                            mtime = datetime.utcfromtimestamp(st.st_mtime)
+                            size = int(st.st_size)
+                        except Exception:
+                            mtime = datetime.utcnow()
+                            size = dl.filesize_bytes or 0
+                        # Try find existing by unique filepath
+                        from sqlalchemy import select as _select
+                        res = await session.execute(_select(LibraryFile).where(LibraryFile.filepath == str(p)))
+                        lf = res.scalars().first()
+                        if lf:
+                            lf.track_id = dl.track_id
+                            lf.file_mtime = mtime
+                            lf.file_size = size
+                            lf.checksum_sha256 = dl.checksum_sha256
+                            lf.exists = True
+                        else:
+                            lf = LibraryFile(
+                                track_id=dl.track_id,
+                                filepath=str(p),
+                                file_mtime=mtime,
+                                file_size=size,
+                                checksum_sha256=dl.checksum_sha256,
+                                exists=True,
+                            )
+                            session.add(lf)
+                except Exception as _e:
+                    print(f"[worker] Failed to upsert LibraryFile for id={job.download_id}: {_e}")
+                # If the track has no cover yet, set it from the YouTube candidate (or chosen YouTube) thumbnail
+                try:
+                    from ..db.models.models import Track as _Track, SearchCandidate as _SC, SearchProvider as _SP  # type: ignore
+                    from ..utils.images import youtube_thumbnail_url as _yt_thumb  # type: ignore
+                    # Re-load track for fresh state
+                    tr = await session.get(_Track, dl.track_id)
+                    if tr:
+                        thumb_url = None
+                        cand: Optional[_SC] = None
+                        if dl.candidate_id:
+                            cand = await session.get(_SC, dl.candidate_id)
+                        if cand and cand.provider == _SP.youtube:
+                            thumb_url = _yt_thumb(cand.external_id) or _yt_thumb(cand.url)
+                        if not thumb_url:
+                            from sqlalchemy import select as _select, desc as _desc
+                            res2 = await session.execute(
+                                _select(_SC)
+                                .where(_SC.track_id == dl.track_id, _SC.provider == _SP.youtube)
+                                .order_by(_desc(_SC.score))
+                            )
+                            yc = res2.scalars().first()
+                            if yc:
+                                thumb_url = _yt_thumb(yc.external_id) or _yt_thumb(yc.url)
+                        # Update if missing or different
+                        if thumb_url and (not tr.cover_url or tr.cover_url != thumb_url):
+                            tr.cover_url = thumb_url
+                except Exception as _e:
+                    print(f"[worker] Failed to set cover for track {dl.track_id}: {_e}")
                 await session.flush()
                 await session.commit()
                 print(f"[worker] Completed download id={job.download_id} -> {dl.filepath}")

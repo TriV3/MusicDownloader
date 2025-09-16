@@ -230,6 +230,12 @@ Tagging is stubbed for now; ID3/metadata writing will be completed alongside Ste
 - Update Download and LibraryFile records upon completion
 - UI: Button on track/candidate to enqueue; library table shows completed items
 
+Implementation (completed):
+- Added library endpoints: `GET /api/v1/library/files` and `GET /api/v1/library/files/{id}` with optional `track_id` filter.
+- Worker writes/updates `LibraryFile` upon successful completion with size, mtime, checksum.
+- Added cancel endpoint `POST /api/v1/downloads/cancel/{id}` for queued jobs (409 if running).
+- README and API docs updated accordingly; tests cover library creation and listing and cancel behavior.
+
 **Validation Criteria:**
 1. API returns a download id; status reflects progress and final result
 2. LibraryFile links to the corresponding track and file path

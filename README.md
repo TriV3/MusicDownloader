@@ -123,6 +123,8 @@ old/               # Legacy code kept for reference
 	- `POST /api/v1/downloads/enqueue?track_id={id}&candidate_id={optional}&provider=yt_dlp`
 	- `GET /api/v1/downloads/?status=&track_id=&limit=&offset=`
 	- `GET /api/v1/downloads/{id}`
+	- `POST /api/v1/downloads/cancel/{id}` (cancel queued; returns 409 if already running)
+	- `GET /api/v1/library/files` and `GET /api/v1/library/files/{id}` (library tracking)
 - Worker:
 	- Starts on app startup by default; set `DISABLE_DOWNLOAD_WORKER=1` to disable (used in tests)
 	- Updates status from queued → running → done/failed with timestamps

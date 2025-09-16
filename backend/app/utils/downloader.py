@@ -14,11 +14,11 @@ import shutil
 try:  # package mode
     from ..core.config import settings  # type: ignore
     from ..db.session import async_session  # type: ignore
-    from ..db.models.models import Download, DownloadStatus, Track, SearchCandidate, SearchProvider  # type: ignore
+    from ..db.models.models import Download, DownloadStatus, Track, SearchCandidate, SearchProvider, LibraryFile  # type: ignore
 except Exception:  # pragma: no cover
     from core.config import settings  # type: ignore
     from db.session import async_session  # type: ignore
-    from db.models.models import Download, DownloadStatus, Track, SearchCandidate, SearchProvider  # type: ignore
+    from db.models.models import Download, DownloadStatus, Track, SearchCandidate, SearchProvider, LibraryFile  # type: ignore
 
 
 @dataclass
@@ -92,23 +92,40 @@ async def perform_download(download_id: int) -> DownloadOutcome:
                 .order_by(desc(SearchCandidate.chosen), desc(SearchCandidate.score))
             )
             cand = result.scalars().first()
+        # Try to find an existing library file for this track to overwrite
+        prev_lf_path: Optional[Path] = None
+        try:
+            from sqlalchemy import select as _select, desc as _desc
+            res_prev = await session.execute(_select(LibraryFile).where(LibraryFile.track_id == dl.track_id).order_by(_desc(LibraryFile.file_mtime)))
+            prev_lf = res_prev.scalars().first()
+            if prev_lf and prev_lf.filepath:
+                prev_lf_path = Path(prev_lf.filepath)
+        except Exception:
+            prev_lf_path = None
 
     # Determine target directory and filename
-    lib_dir = Path(settings.library_dir).resolve()
+    # Allow runtime override via environment for tests; fallback to settings
+    lib_dir_env = os.environ.get("LIBRARY_DIR")
+    lib_dir = Path(lib_dir_env or settings.library_dir).resolve()
     await _ensure_dir(lib_dir)
     base_name = _safe_filename(f"{track.artists} - {track.title}")
     # Prefer mp3 container by default
     ext = ".mp3"
-    out_path = lib_dir / f"{base_name}{ext}"
-    # Ensure unique filename
-    idx = 1
-    while out_path.exists():
-        out_path = lib_dir / f"{base_name} ({idx}){ext}"
-        idx += 1
+    # Overwrite policy: if we have a previous library file for this track, target that path base; otherwise use default
+    if prev_lf_path is not None:
+        out_path = prev_lf_path
+    else:
+        out_path = lib_dir / f"{base_name}{ext}"
 
     # Fake mode
     if os.environ.get("DOWNLOAD_FAKE", "0") in {"1", "true", "TRUE", "True"}:
         print(f"[downloader] FAKE mode -> creating placeholder at {out_path}")
+        # Overwrite existing file if present
+        try:
+            if out_path.exists():
+                await asyncio.to_thread(out_path.unlink)
+        except Exception:
+            pass
         await _write_fake_mp3(out_path, title=track.title, artists=track.artists)
         checksum = _sha256_file(out_path)
         size = out_path.stat().st_size
@@ -159,6 +176,7 @@ async def perform_download(download_id: int) -> DownloadOutcome:
     ffmpeg_path = _resolve_exec(settings.ffmpeg_bin, ["ffmpeg.exe", "ffmpeg"]) or settings.ffmpeg_bin or "ffmpeg"
     # Template: bestaudio -> preferred format using ffmpeg, write to out_path (extension added by yt-dlp)
     # Let yt-dlp decide extension via template; we'll detect and rename if needed
+    # Use the same base name so re-download replaces previous file (possibly with new extension)
     tmp_out = out_path.with_suffix("")
     # Quote values to survive spaces/special chars (yt-dlp will parse with shlex)
     def _q(v: Optional[str]) -> str:
@@ -201,8 +219,8 @@ async def perform_download(download_id: int) -> DownloadOutcome:
         ]
         if ytdlp_add_meta:
             parts.append("--add-metadata")
-        # Only embed YouTube thumbnail if we don't already have a preferred cover on the track
-        if allow_embed and embed_thumb and not getattr(track, "cover_url", None):
+        # Embed YouTube thumbnail when allowed
+        if allow_embed and embed_thumb:
             parts.append("--embed-thumbnail")
         # Build ffmpeg post-processor args dynamically per format
         fmt_flags: list[str] = []
@@ -229,7 +247,7 @@ async def perform_download(download_id: int) -> DownloadOutcome:
             # Fallback: if mp3 failed, try m4a without thumbnail embedding (more compatible on minimal ffmpeg)
             pref = settings.preferred_audio_format.lower()
             if pref == "mp3":
-                fcmd = build_cmd("m4a", allow_embed=False)
+                fcmd = build_cmd("m4a", allow_embed=True)
                 print("[downloader] mp3 conversion failed; retrying with m4a (no thumbnail embed)")
                 print(f"[downloader] Running: {' '.join(shlex.quote(c) for c in fcmd)}")
                 subprocess.run(fcmd, check=True)
@@ -249,13 +267,26 @@ async def perform_download(download_id: int) -> DownloadOutcome:
             produced = out_path
         else:
             raise RuntimeError("yt-dlp did not produce an output file")
-    # If produced name differs, move to final out_path (keeping extension)
+    # If produced name differs, move to final out_path (keeping extension) and remove previous file if extension changed
     if produced != out_path:
-        out_path = out_path.with_suffix(produced.suffix)
+        final_path = out_path.with_suffix(produced.suffix)
+        # Remove existing target file to ensure overwrite (no (1) suffixes)
+        try:
+            if final_path.exists():
+                await asyncio.to_thread(final_path.unlink)
+        except Exception:
+            pass
         def _rename():
-            print(f"[downloader] Renaming {produced} -> {out_path}")
-            produced.replace(out_path)
+            print(f"[downloader] Renaming {produced} -> {final_path}")
+            produced.replace(final_path)
         await asyncio.to_thread(_rename)
+        # If there was an older library file with a different extension, remove it to avoid duplicates
+        try:
+            if prev_lf_path and prev_lf_path.exists() and prev_lf_path != final_path:
+                await asyncio.to_thread(prev_lf_path.unlink)
+        except Exception:
+            pass
+        out_path = final_path
 
     size = out_path.stat().st_size
     checksum = _sha256_file(out_path)

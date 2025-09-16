@@ -33,6 +33,16 @@ Current endpoints (v1)
   - DELETE `/api/v1/tracks/{id}`
   - GET `/api/v1/tracks/{id}/youtube/search` — Search YouTube for candidates; supports `prefer_extended`, `persist`, `limit`
   - POST `/api/v1/tracks/{id}/cover/refresh` — Refresh cover using Spotify album art if available, otherwise chosen YouTube thumbnail
+ - Downloads:
+  - POST `/api/v1/downloads/enqueue?track_id={id}&candidate_id={optional}&provider=yt_dlp`
+  - GET `/api/v1/downloads/?status=&track_id=&limit=&offset=`
+  - GET `/api/v1/downloads/{id}`
+  - POST `/api/v1/downloads/cancel/{id}` — Cancel a queued download (409 if running)
+ - Library:
+  - GET `/api/v1/library/files?track_id=&limit=&offset=`
+  - GET `/api/v1/library/files/{id}`
+    - GET `/api/v1/library/files/{id}/download` — Download the audio file via HTTP
+    - POST `/api/v1/library/files/{id}/reveal` — On Windows, open Explorer and select the file
 - OAuth (generic):
   - GET `/api/v1/oauth/tokens`
   - POST `/api/v1/oauth/tokens`

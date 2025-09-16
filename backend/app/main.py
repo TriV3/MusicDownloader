@@ -21,6 +21,7 @@ try:
     from .db.session import engine, Base  # type: ignore
     from .core.config import settings  # type: ignore
     from .api.v1.downloads import router as downloads_router  # type: ignore
+    from .api.v1.library import router as library_router  # type: ignore
     from .worker.downloads_worker import download_queue, DownloadQueue  # type: ignore
 except Exception:  # pragma: no cover
     from api.v1.health import router as health_router  # type: ignore
@@ -35,6 +36,7 @@ except Exception:  # pragma: no cover
     from db.session import engine, Base  # type: ignore
     from core.config import settings  # type: ignore
     from api.v1.downloads import router as downloads_router  # type: ignore
+    from api.v1.library import router as library_router  # type: ignore
     from worker.downloads_worker import download_queue, DownloadQueue  # type: ignore
 
 tags_metadata = [
@@ -174,6 +176,7 @@ app.include_router(candidates_router, prefix="/api/v1")
 app.include_router(oauth_router, prefix="/api/v1")
 app.include_router(oauth_spotify_router, prefix="/api/v1")
 app.include_router(downloads_router, prefix="/api/v1")
+app.include_router(library_router, prefix="/api/v1")
 
 
 @app.get("/api")

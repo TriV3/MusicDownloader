@@ -20,7 +20,7 @@ def extract_youtube_id(url_or_id: str) -> Optional[str]:
     return None
 
 
-def youtube_thumbnail_url(external_id_or_url: str, prefer_maxres: bool = True) -> Optional[str]:
+def youtube_thumbnail_url(external_id_or_url: str, prefer_maxres: bool = False) -> Optional[str]:
     """Return a public thumbnail URL for a YouTube video id or URL.
 
     If prefer_maxres is True, we point to maxresdefault.jpg which may not exist for all videos;

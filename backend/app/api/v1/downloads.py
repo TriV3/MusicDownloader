@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -144,9 +145,30 @@ async def enqueue_download(
     return dl
 
 
+@router.post("/cancel/{download_id}", response_model=DownloadRead)
+async def cancel_download(download_id: int, session: AsyncSession = Depends(get_session)):
+    dl = await session.get(Download, download_id)
+    if not dl:
+        raise HTTPException(status_code=404, detail="Download not found")
+    if dl.status == DownloadStatus.running:
+        raise HTTPException(status_code=409, detail="Cannot cancel a running download")
+    if dl.status in {DownloadStatus.done, DownloadStatus.failed, DownloadStatus.skipped, DownloadStatus.already}:
+        return dl
+    dl.status = DownloadStatus.skipped
+    dl.finished_at = datetime.utcnow()
+    await session.flush()
+    # Note: If the job was enqueued already, worker will skip when it sees status=skipped.
+    return dl
+
+
 # Test-only helpers (not included in OpenAPI docs)
+class _WorkerRestartBody(BaseModel):
+    concurrency: int = 2
+    simulate_seconds: float = 0.1
+
+
 @router.post("/_restart_worker", include_in_schema=False)
-async def restart_worker(concurrency: int = 2, simulate_seconds: float = 0.1):
+async def restart_worker(payload: _WorkerRestartBody):
     try:  # pragma: no cover
         from ...worker import downloads_worker as dw  # type: ignore
     except Exception:  # pragma: no cover
@@ -156,6 +178,11 @@ async def restart_worker(concurrency: int = 2, simulate_seconds: float = 0.1):
             await dw.download_queue.stop()
     except Exception:
         pass
+    concurrency = max(1, int(payload.concurrency))
+    try:
+        simulate_seconds = float(payload.simulate_seconds)
+    except Exception:
+        simulate_seconds = 0.0
     dw.download_queue = dw.DownloadQueue(concurrency=concurrency, simulate_seconds=simulate_seconds)
     await dw.download_queue.start()
     return {"ok": True, "concurrency": concurrency, "simulate_seconds": simulate_seconds}

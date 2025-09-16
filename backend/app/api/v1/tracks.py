@@ -106,15 +106,15 @@ async def ready_for_download(
     cand_ids = set((await session.execute(cand_stmt)).scalars().all())
     if not cand_ids:
         return []
-    # Optionally exclude tracks with a 'done' download
+    # Optionally exclude tracks that already have a library file on disk
     ready_ids: list[int]
     if include_downloaded:
         ready_ids = list(cand_ids)
     else:
-        from ...db.models.models import Download, DownloadStatus  # type: ignore
-        done_stmt = select(Download.track_id).where(Download.status == DownloadStatus.done)
-        done_ids = set((await session.execute(done_stmt)).scalars().all())
-        ready_ids = list(cand_ids - done_ids)
+        from ...db.models.models import LibraryFile  # type: ignore
+        lf_stmt = select(LibraryFile.track_id)
+        lf_ids = set((await session.execute(lf_stmt)).scalars().all())
+        ready_ids = list(cand_ids - lf_ids)
     if not ready_ids:
         return []
     q = select(Track).where(Track.id.in_(ready_ids)).order_by(desc(Track.updated_at))
