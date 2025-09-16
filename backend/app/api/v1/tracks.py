@@ -1,4 +1,5 @@
 from typing import List, Optional
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, delete, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,8 +18,10 @@ try:
     from ...schemas.models import TrackCreate, TrackRead, SearchCandidateRead  # type: ignore
     from ...utils.normalize import normalize_track, duration_delta_sec  # type: ignore
     from ...utils.youtube_search import search_youtube  # type: ignore
+    from ...utils.images import youtube_thumbnail_url  # type: ignore
     from ...db.models.models import SearchCandidate, SearchProvider  # type: ignore
     from ...core.config import settings  # type: ignore
+    import httpx  # type: ignore
 except Exception:  # pragma: no cover
     from db.session import get_session  # type: ignore
     from db.models.models import (
@@ -33,8 +36,10 @@ except Exception:  # pragma: no cover
     from schemas.models import TrackCreate, TrackRead, SearchCandidateRead  # type: ignore
     from utils.normalize import normalize_track, duration_delta_sec  # type: ignore
     from utils.youtube_search import search_youtube  # type: ignore
+    from utils.images import youtube_thumbnail_url  # type: ignore
     from db.models.models import SearchCandidate, SearchProvider  # type: ignore
     from core.config import settings  # type: ignore
+    import httpx  # type: ignore
 
 
 router = APIRouter(prefix="/tracks", tags=["tracks"])
@@ -107,10 +112,6 @@ async def update_track(track_id: int, payload: TrackCreate, session: AsyncSessio
         data.setdefault("normalized_title", norm.normalized_title)
     for k, v in data.items():
         setattr(track, k, v)
-    # Touch identities to bump updated_at (placeholder for future logic)
-    identities = getattr(track, 'identities', [])  # type: ignore[attr-defined]
-    for ident in identities:
-        ident.provider_url = ident.provider_url
     await session.flush()
     return track
 
@@ -171,6 +172,11 @@ async def youtube_search_track(
                 score=sr.score,
             )
             session.add(sc)
+        # If track has no cover yet, set it from the top scored candidate's thumbnail
+        if not track.cover_url and scored:
+            thumb = youtube_thumbnail_url(scored[0].external_id) or youtube_thumbnail_url(scored[0].url)
+            if thumb:
+                track.cover_url = thumb
         await session.flush()
         # Re-query all youtube candidates for this track sorted by score desc
         result = await session.execute(
@@ -183,10 +189,22 @@ async def youtube_search_track(
         for c in rows:
             # Build pydantic object manually to add duration_delta_sec like candidates API does
             from ..v1.candidates import _attach_computed  # type: ignore
-            out.append(_attach_computed(track.duration_ms, c))
+            out.append(_attach_computed(track, c))
     else:
         # Return transient scored list
+        from ...utils.youtube_search import get_score_components  # type: ignore
         for sr in scored:
+            norm = normalize_track(track.artists, track.title)
+            comps = get_score_components(
+                norm_query=f"{norm.normalized_artists} {norm.normalized_title}".strip(),
+                norm_title=re.sub(r"\s+", " ", sr.title.lower()).strip(),
+                primary_artist=norm.primary_artist,
+                track_duration_ms=track.duration_ms,
+                result_duration_sec=sr.duration_sec,
+                result_title=sr.title,
+                result_channel=sr.channel,
+                prefer_extended=prefer_extended,
+            )
             out.append(
                 SearchCandidateRead(
                     id=0,  # transient placeholder
@@ -201,6 +219,91 @@ async def youtube_search_track(
                     chosen=False,
                     created_at=track.created_at,
                     duration_delta_sec=duration_delta_sec(track.duration_ms, sr.duration_sec * 1000) if (track.duration_ms and sr.duration_sec) else None,  # type: ignore[arg-type]
+                    score_breakdown=SearchCandidateRead.ScoreBreakdown(
+                        text=comps[0],
+                        duration=comps[1],
+                        extended=comps[2],
+                        channel=comps[3],
+                        penalty=comps[4],
+                        total=round(sum(comps), 6),
+                    ),
                 )
             )
     return out
+
+
+@router.post("/{track_id}/cover/refresh", response_model=TrackRead)
+async def refresh_track_cover(track_id: int, session: AsyncSession = Depends(get_session)):
+    """Refresh track cover from available identities.
+
+    Strategy:
+    - If Spotify identity exists, fetch track details and use album image (first image url).
+    - Else if chosen YouTube candidate exists, set thumbnail.
+    - Else leave unchanged.
+    """
+    track = await session.get(Track, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    # Try Spotify identity
+    result = await session.execute(
+        select(TrackIdentity).where(
+            TrackIdentity.track_id == track_id,
+            TrackIdentity.provider == SourceProvider.spotify,
+        )
+    )
+    sp_identity: Optional[TrackIdentity] = result.scalars().first()
+    new_cover: Optional[str] = None
+    if sp_identity and sp_identity.provider_track_id:
+        # Use Spotify Web API to fetch track -> album images
+        # Expect a global OAuth token stored in oauth_tokens; in absence, skip.
+        try:
+            from ..v1.oauth_spotify import _get_env  # type: ignore
+            from ..v1.oauth_spotify import SPOTIFY_TOKEN_URL  # type: ignore
+        except Exception:  # pragma: no cover
+            _get_env = None  # type: ignore
+        # We don't implement token exchange here; assume a valid token exists in DB or env for simplicity
+        access_token = None
+        try:
+            # Prefer DB token
+            from ...db.models.models import OAuthToken  # type: ignore
+            tokres = await session.execute(select(OAuthToken).order_by(desc(OAuthToken.updated_at)))
+            tok = tokres.scalars().first()
+            if tok:
+                access_token = tok.access_token
+        except Exception:
+            access_token = None
+        if not access_token:
+            # Optional: allow direct env var for quick dev tests
+            import os
+            access_token = os.environ.get("SPOTIFY_ACCESS_TOKEN")
+        if access_token:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.get(
+                        f"https://api.spotify.com/v1/tracks/{sp_identity.provider_track_id}",
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    images = (((data or {}).get("album") or {}).get("images") or [])
+                    if images:
+                        new_cover = images[0].get("url")
+            except Exception:
+                pass
+
+    # Fallback to chosen YouTube candidate
+    if not new_cover:
+        result2 = await session.execute(
+            select(SearchCandidate)
+            .where(SearchCandidate.track_id == track_id, SearchCandidate.chosen.is_(True))
+            .order_by(desc(SearchCandidate.score))
+        )
+        chosen = result2.scalars().first()
+        if chosen and chosen.provider == SearchProvider.youtube:
+            new_cover = youtube_thumbnail_url(chosen.external_id) or youtube_thumbnail_url(chosen.url)
+
+    if new_cover:
+        track.cover_url = new_cover
+        await session.flush()
+    return track

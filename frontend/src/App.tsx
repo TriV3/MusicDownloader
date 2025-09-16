@@ -4,7 +4,8 @@ import DashboardPage from './routes/DashboardPage'
 import TracksPage from './routes/TracksPage'
 import ImportPage from './routes/ImportPage'
 import ToolsPage from './routes/ToolsPage'
-import TrackDetailPage, { TrackOverviewTab, TrackIdentitiesTab, TrackCandidatesTab, TrackSearchTab } from './routes/TrackDetailPage'
+import TrackDetailPage, { TrackOverviewTab, TrackIdentitiesTab, TrackCandidatesTab } from './routes/TrackDetailPage'
+import DownloadsPage from './routes/DownloadsPage'
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
             <NavLink to="/tracks">Tracks</NavLink>
             <NavLink to="/import">Import</NavLink>
             <NavLink to="/tools">Tools</NavLink>
+            <NavLink to="/downloads">Downloads</NavLink>
           </nav>
         </header>
         <Routes>
@@ -27,10 +29,10 @@ export default function App() {
             <Route path="overview" element={<TrackOverviewTab />} />
             <Route path="identities" element={<TrackIdentitiesTab />} />
             <Route path="candidates" element={<TrackCandidatesTab />} />
-            <Route path="search" element={<TrackSearchTab />} />
           </Route>
           <Route path="/import" element={<ImportPage />} />
           <Route path="/tools" element={<ToolsPage />} />
+          <Route path="/downloads" element={<DownloadsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

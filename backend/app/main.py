@@ -20,6 +20,8 @@ try:
     from .api.v1.oauth_spotify import router as oauth_spotify_router  # type: ignore
     from .db.session import engine, Base  # type: ignore
     from .core.config import settings  # type: ignore
+    from .api.v1.downloads import router as downloads_router  # type: ignore
+    from .worker.downloads_worker import download_queue, DownloadQueue  # type: ignore
 except Exception:  # pragma: no cover
     from api.v1.health import router as health_router  # type: ignore
     from api.v1.sources import router as sources_router  # type: ignore
@@ -32,6 +34,8 @@ except Exception:  # pragma: no cover
     from api.v1.oauth_spotify import router as oauth_spotify_router  # type: ignore
     from db.session import engine, Base  # type: ignore
     from core.config import settings  # type: ignore
+    from api.v1.downloads import router as downloads_router  # type: ignore
+    from worker.downloads_worker import download_queue, DownloadQueue  # type: ignore
 
 tags_metadata = [
     {"name": "health", "description": "Health checks and basic service info."},
@@ -91,6 +95,7 @@ async def on_startup():
                     pass
         except Exception:
             pass
+
         # Auto-migrate new Track columns (genre, bpm) if missing (Step 1.4)
         try:  # pragma: no cover
             result = await conn.exec_driver_sql("PRAGMA table_info(tracks)")
@@ -108,6 +113,40 @@ async def on_startup():
         except Exception:
             pass
 
+    # Start download worker(s) unless disabled (e.g., in tests)
+    import os
+    if os.environ.get("DISABLE_DOWNLOAD_WORKER", "0") not in {"1", "true", "TRUE", "True"}:
+        # Concurrency can later be added to settings; use 2 as a safe default
+        from .worker import downloads_worker as dw  # lazy import to set global
+        dw.download_queue = DownloadQueue(concurrency=2, simulate_seconds=0.5)
+        await dw.download_queue.start()
+
+    # Enqueue any downloads that are already queued at startup
+    try:  # pragma: no cover
+        from sqlalchemy import select
+        from .db.models.models import Download, DownloadStatus  # type: ignore
+        from .db.session import async_session  # type: ignore
+        async with async_session() as session:
+            result = await session.execute(select(Download).where(Download.status == DownloadStatus.queued))
+            for dl in result.scalars().all():
+                if dw.download_queue:
+                    await dw.download_queue.enqueue(dl.id)
+    except Exception:
+        pass
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    from .worker import downloads_worker as dw
+    try:
+        dq = dw.download_queue
+        if dq:
+            await dq.stop()
+    except Exception:
+        # Ignore shutdown errors (e.g., event loop closed in test teardown)
+        pass
+    finally:
+        dw.download_queue = None
+
 # Routes
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(sources_router, prefix="/api/v1")
@@ -118,6 +157,7 @@ app.include_router(identities_router, prefix="/api/v1")
 app.include_router(candidates_router, prefix="/api/v1")
 app.include_router(oauth_router, prefix="/api/v1")
 app.include_router(oauth_spotify_router, prefix="/api/v1")
+app.include_router(downloads_router, prefix="/api/v1")
 
 
 @app.get("/api")

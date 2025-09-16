@@ -173,15 +173,35 @@ Implementation (completed):
 3. User can select and persist a candidate for a track
 4. End-to-end flow executes without runtime errors
 
-### Step 2.2: Download Queue and Worker
-- In-process asyncio queue/worker with concurrency control
-- Job lifecycle: queued → running → succeeded/failed with timestamps
-- UI: Downloads page showing queue and status with live updates (polling)
+### Step 2.2: Download Queue and Worker (Implemented)
+- In-process asyncio queue/worker with configurable concurrency
+- Job lifecycle: queued → running → done/failed with timestamps
+- UI: Downloads page that lists downloads and updates via polling
+
+APIs:
+- POST `/api/v1/downloads/enqueue?track_id={id}&candidate_id={optional}&provider=yt_dlp`
+- GET `/api/v1/downloads/?status=&track_id=&limit=&offset=`
+- GET `/api/v1/downloads/{id}`
+
+Worker behavior:
+- On startup, a worker is started unless `DISABLE_DOWNLOAD_WORKER=1` (used in tests)
+- Each job sets status running, simulates work, then marks done/failed and commits
+- On shutdown, the worker is stopped cleanly
+
+Test helpers (not in OpenAPI):
+- POST `/api/v1/downloads/_restart_worker` body `{ concurrency, simulate_seconds }` — starts a worker in the app context
+- POST `/api/v1/downloads/_wait_idle` body `{ timeout, track_id?, stop_after? }` — waits for queue to drain and optionally stops the worker
+
+Notes:
+- SQLite for tests uses a shared in-memory configuration so the worker and API share the same DB
+- Tests disable worker auto-start via `DISABLE_DOWNLOAD_WORKER=1` and control it via helper endpoints to avoid asyncio warnings
 
 **Validation Criteria:**
 1. Enqueuing multiple jobs processes them concurrently up to a limit
 2. Job states persist and are queryable via API
 3. Downloads page refreshes to reflect status transitions without full reload
+
+ 
 
 ### Step 2.3: yt-dlp Integration and Tagging
 - Download best candidate audio (m4a/mp3) via yt-dlp

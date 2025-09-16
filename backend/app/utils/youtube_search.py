@@ -51,6 +51,34 @@ def _extended_mix_bonus(title: str, prefer_extended: bool) -> float:
     return 0.15 if any(k in t for k in _EXTENDED_KEYWORDS) else 0.0
 
 
+def _official_channel_bonus(channel: Optional[str], primary_artist: str) -> float:
+    """Heuristic bonus for official-looking channels.
+
+    Tiers:
+    - +0.30 if channel name suggests official source (contains 'vevo', ' - topic', 'official').
+    - +0.20 if channel name also matches the primary artist name (normalized, space-insensitive).
+    Caps at +0.50 total.
+    """
+    if not channel:
+        return 0.0
+    c = channel.lower().strip()
+    # Normalize by removing non-alphanumeric to match e.g. 'daftpunk' in 'daftpunkvevo'
+    import re as _re
+    def _norm(s: str) -> str:
+        return _re.sub(r"[^a-z0-9]+", "", s.lower())
+    cn = _norm(c)
+    an = _norm(primary_artist)
+    base = 0.0
+    # Exact channel == artist name → treat as official source
+    if an and cn == an:
+        base += 0.30
+    if ("vevo" in c) or ("official" in c) or (" - topic" in c):
+        base += 0.30
+    if an and an in cn:
+        base += 0.20
+    return min(base, 0.50)
+
+
 def _text_similarity(norm_query: str, norm_title: str) -> float:
     # Simple token overlap ratio (Jaccard)
     q_tokens = set(norm_query.split())
@@ -81,27 +109,68 @@ def score_result(
     norm_query = f"{norm.normalized_artists} {norm.normalized_title}".strip()
     norm_title = re.sub(r"\s+", " ", result.title.lower()).strip()
 
+    text_sim, duration_bonus, ext_bonus, ch_bonus, penalty = get_score_components(
+        norm_query=norm_query,
+        norm_title=norm_title,
+        primary_artist=norm.primary_artist,
+        track_duration_ms=track_duration_ms,
+        result_duration_sec=result.duration_sec,
+        result_title=result.title,
+        result_channel=result.channel,
+        prefer_extended=prefer_extended,
+    )
+    raw = text_sim + duration_bonus + ext_bonus + ch_bonus + penalty
+    return round(raw, 6)
+
+
+def get_score_components(
+    *,
+    norm_query: str,
+    norm_title: str,
+    primary_artist: str,
+    track_duration_ms: Optional[int],
+    result_duration_sec: Optional[int],
+    result_title: str,
+    result_channel: Optional[str],
+    prefer_extended: bool,
+):
+    """Return individual scoring components as a tuple:
+    (text_similarity, duration_bonus, extended_bonus, channel_bonus, penalties_total)
+    """
     text_sim = _text_similarity(norm_query, norm_title)
+    # Duration component: stronger weight and proportional penalty when far,
+    # with relaxed penalty/tolerance for Extended/Club variants.
     duration_bonus = 0.0
-    if track_duration_ms and result.duration_sec:
-        delta = duration_delta_sec(track_duration_ms, result.duration_sec * 1000)
+    is_extended_title = any(k in (result_title or "").lower() for k in _EXTENDED_KEYWORDS)
+    if track_duration_ms and result_duration_sec:
+        delta = duration_delta_sec(track_duration_ms, result_duration_sec * 1000)
         if delta is not None:
-            # 0 bonus at 12s delta, 0.25 at perfect match, linear decay
-            duration_bonus = max(0.0, 0.25 * (1 - min(delta, 12) / 12))
-
-    ext_bonus = _extended_mix_bonus(result.title, prefer_extended)
-
-    # Penalize if query primary artist missing entirely
+            # Parameters
+            pos_weight = 0.35
+            pos_tol = 40 if is_extended_title else 10  # seconds to decay to 0
+            neg_cap = -0.05 if is_extended_title else -0.30  # clamp negative impact
+            # Linear piecewise with clamp
+            raw = pos_weight * (1 - (delta / pos_tol))
+            if raw < neg_cap:
+                raw = neg_cap
+            if raw > pos_weight:
+                raw = pos_weight
+            duration_bonus = raw
+    ext_bonus = _extended_mix_bonus(result_title, prefer_extended)
+    ch_bonus = _official_channel_bonus(result_channel, primary_artist)
     penalty = 0.0
-    if norm.primary_artist.lower() not in norm_title:
+    if primary_artist.lower() not in norm_title:
         penalty -= 0.05
-    # Penalize unmatched required tokens (tokens in query but not in title)
-    for token in norm.normalized_title.split():
+    for token in norm_query.split():
         if token not in norm_title:
             penalty -= 0.01
-
-    raw = text_sim + duration_bonus + ext_bonus + penalty
-    return round(raw, 6)
+    return (
+        round(text_sim, 6),
+        round(duration_bonus, 6),
+        round(ext_bonus, 6),
+        round(ch_bonus, 6),
+        round(penalty, 6),
+    )
 
 
 def _run_yt_dlp_search(query: str, limit: int = 10) -> List[YouTubeResult]:

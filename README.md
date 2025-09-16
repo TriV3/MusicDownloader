@@ -67,7 +67,7 @@ Variables are loaded from `backend/.env` (via python-dotenv) and can be overridd
 	- `SPOTIFY_CLIENT_SECRET`
 	- `SPOTIFY_REDIRECT_URI` (e.g., `http://localhost:8000/api/v1/oauth/spotify/callback` or a frontend URL that forwards to the backend callback)
 
-- YouTube Search (Step 2.1):
+- YouTube Search:
 	- `YOUTUBE_SEARCH_LIMIT` (default 8) maximum results to request.
 	- `YOUTUBE_SEARCH_FAKE=1` return deterministic fake results (used in tests).
 
@@ -102,6 +102,7 @@ old/               # Legacy code kept for reference
 - CRUD endpoints for sources, playlists, and tracks.
 - OAuth storage API and Spotify OAuth (PKCE) endpoints (authorize, callback, refresh) with encrypted refresh tokens.
 - React + Vite frontend with panels: normalization playground, identities, YouTube search (scored), candidates list, JSON import.
+	The tracks list also shows cover images, genre, bpm, duration, and timestamps.
 - Pytest test suite (health, CRUD basics, crypto, mocked Spotify OAuth, YouTube search scoring with fake results).
 - YouTube search endpoint: `GET /api/v1/tracks/{track_id}/youtube/search` params:
 	- `prefer_extended` (bool) boosts Extended/Club Mix results.
@@ -109,6 +110,27 @@ old/               # Legacy code kept for reference
 	- `limit` (optional int) overrides search limit.
 	Scoring blends text token overlap, duration proximity, extended mix bonus, and small penalties for missing tokens.
 - Single-source name/version (`backend/app/app_meta.py`) exposed via `/api/v1/info`.
+
+### Cover images
+- When running YouTube search with `persist=true` for a track that has no cover yet, the top candidate's YouTube thumbnail is used.
+- Choosing a YouTube candidate also fills the track cover if it is missing.
+- You can refresh a cover via `POST /api/v1/tracks/{id}/cover/refresh`:
+  - If a Spotify identity exists and a valid token is configured, the track's album art is used.
+  - Otherwise, if a chosen YouTube candidate exists, its thumbnail is used.
+
+### Downloads
+- Endpoints:
+	- `POST /api/v1/downloads/enqueue?track_id={id}&candidate_id={optional}&provider=yt_dlp`
+	- `GET /api/v1/downloads/?status=&track_id=&limit=&offset=`
+	- `GET /api/v1/downloads/{id}`
+- Worker:
+	- Starts on app startup by default; set `DISABLE_DOWNLOAD_WORKER=1` to disable (used in tests)
+	- Updates status from queued → running → done/failed with timestamps
+- Testing:
+	- Test-only helpers (not shown in OpenAPI):
+		- `POST /api/v1/downloads/_restart_worker` with `{ "concurrency": 2, "simulate_seconds": 0.05 }`
+		- `POST /api/v1/downloads/_wait_idle` with `{ "timeout": 3.0, "track_id": <id>, "stop_after": true }`
+	- These helpers make tests deterministic and ensure clean shutdown without asyncio warnings
 
 ## Next steps
 - Track normalization utilities applied server-side when creating tracks.
@@ -119,4 +141,4 @@ old/               # Legacy code kept for reference
 - CI pipeline and optional DB migrations.
 
 ## Changelog
-See `CHANGELOG.md` for released steps and the version mapping (`0.<phase>.<step>`).
+See `CHANGELOG.md` for release notes and version history.

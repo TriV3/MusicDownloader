@@ -56,3 +56,9 @@ Connect Spotify
 Troubleshooting
 - Missing Spotify configuration: set SPOTIFY_CLIENT_ID/SECRET/REDIRECT_URI in `backend/.env`, restart the API, and retry.
 - API docs: http://localhost:8000/api/docs
+
+Track covers
+- The tracks list shows cover thumbnails when available.
+- If you persist YouTube search results for a track without a cover, the top result's thumbnail is used.
+- Choosing a YouTube candidate also fills the cover if missing.
+- You can also refresh the cover via the API: `POST /api/v1/tracks/{id}/cover/refresh`.

@@ -28,6 +28,11 @@ Current endpoints (v1)
 - Tracks:
   - GET `/api/v1/tracks/`
   - POST `/api/v1/tracks/`
+  - GET `/api/v1/tracks/{id}`
+  - PUT `/api/v1/tracks/{id}`
+  - DELETE `/api/v1/tracks/{id}`
+  - GET `/api/v1/tracks/{id}/youtube/search` — Search YouTube for candidates; supports `prefer_extended`, `persist`, `limit`
+  - POST `/api/v1/tracks/{id}/cover/refresh` — Refresh cover using Spotify album art if available, otherwise chosen YouTube thumbnail
 - OAuth (generic):
   - GET `/api/v1/oauth/tokens`
   - POST `/api/v1/oauth/tokens`
@@ -35,6 +40,7 @@ Current endpoints (v1)
   - GET `/api/v1/oauth/spotify/authorize?account_id=...&redirect_to=...`
   - GET `/api/v1/oauth/spotify/callback?code=...&state=...`
   - POST `/api/v1/oauth/spotify/refresh?account_id=...`
+
 
 Configuration
 - Environment variables are loaded from `backend/.env` (via python-dotenv) and can be overridden by the process environment.
@@ -51,3 +57,14 @@ Versioning
 Testing
 - Tests use in-memory SQLite via `DATABASE_URL` and `httpx.AsyncClient` mounted to the FastAPI app.
 - See `backend/tests` for examples.
+
+## YouTube search and scoring
+
+Scoring combines:
+- Text similarity between normalized artists+title and the YouTube title
+- Duration proximity bonus (up to +0.25 for exact match, linear decay to 0 at ~12s delta)
+- Extended/Club Mix bonus (+0.15 when `prefer_extended=true` and title indicates extended/club)
+- Official channel bonus (+0.30 for official-looking channels such as VEVO, Official, or "- Topic"; +0.20 extra when the channel matches the primary artist name; capped at +0.50)
+- Small penalties when primary artist is missing from title or important tokens are unmatched
+
+Results are sorted by score desc then id asc for stability.

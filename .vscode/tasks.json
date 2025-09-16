@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run backend tests (venv)",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"venv\\Scripts\\python -m pytest -q backend/tests/test_track_covers.py"
+			],
+			"problemMatcher": [
+				"$pytest-internal"
+			],
+			"group": "test"
+		}
+	]
+}

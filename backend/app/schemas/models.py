@@ -144,6 +144,15 @@ class SearchCandidateRead(SearchCandidateCreate):
     id: int
     created_at: datetime
     duration_delta_sec: Optional[float] = None  # computed client convenience
+    class ScoreBreakdown(BaseModel):
+        text: float
+        duration: float
+        extended: float
+        channel: float
+        penalty: float
+        total: float
+
+    score_breakdown: Optional[ScoreBreakdown] = None
 
     class Config:
         from_attributes = True

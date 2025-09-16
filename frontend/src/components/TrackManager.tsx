@@ -2,7 +2,23 @@ import React from 'react'
 import { Link } from 'react-router-dom'
 import type { NormalizationPreview } from './NormalizationPlayground'
 
-export type TrackRead = { id: number; title: string; artists: string; normalized_title: string; normalized_artists: string }
+export type TrackRead = {
+  id: number
+  title: string
+  artists: string
+  album?: string | null
+  duration_ms?: number | null
+  isrc?: string | null
+  year?: number | null
+  explicit: boolean
+  cover_url?: string | null
+  normalized_title: string
+  normalized_artists: string
+  genre?: string | null
+  bpm?: number | null
+  created_at: string
+  updated_at: string
+}
 
 export const TrackManager: React.FC = () => {
   const [tracks, setTracks] = React.useState<TrackRead[]>([])
@@ -78,9 +94,14 @@ export const TrackManager: React.FC = () => {
         <thead>
           <tr style={{ textAlign: 'left' }}>
             <th>ID</th>
+            <th>Cover</th>
             <th>Artists</th>
             <th>Title</th>
-            <th>Normalized</th>
+            <th>Genre</th>
+            <th>BPM</th>
+            <th>Duration</th>
+            <th>Created</th>
+            <th>Updated</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -88,16 +109,27 @@ export const TrackManager: React.FC = () => {
           {tracks.map(t => (
             <tr key={t.id}>
               <td>{t.id}</td>
+              <td>
+                {t.cover_url ? (
+                  <img src={t.cover_url} alt="cover" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4 }} />
+                ) : (
+                  <div style={{ width: 48, height: 48, background: '#eee', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: 10 }}>No image</div>
+                )}
+              </td>
               <td>{t.artists}</td>
               <td>{t.title}</td>
-              <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{t.normalized_artists} – {t.normalized_title}</td>
+              <td>{t.genre ?? '-'}</td>
+              <td>{t.bpm ?? '-'}</td>
+              <td>{t.duration_ms != null ? formatDuration(t.duration_ms) : '-'}</td>
+              <td>{formatDate(t.created_at)}</td>
+              <td>{formatDate(t.updated_at)}</td>
               <td style={{ display: 'flex', gap: 8 }}>
                 <Link to={`/tracks/${t.id}`}>View</Link>
                 <button onClick={() => remove(t.id)}>Delete</button>
               </td>
             </tr>
           ))}
-          {tracks.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', padding: 8 }}>No tracks</td></tr>}
+          {tracks.length === 0 && <tr><td colSpan={10} style={{ textAlign: 'center', padding: 8 }}>No tracks</td></tr>}
         </tbody>
       </table>
     </section>
@@ -105,3 +137,19 @@ export const TrackManager: React.FC = () => {
 }
 
 export default TrackManager
+
+function formatDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000))
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function formatDate(iso: string): string {
+  try {
+    const d = new Date(iso)
+    return d.toLocaleString()
+  } catch {
+    return iso
+  }
+}

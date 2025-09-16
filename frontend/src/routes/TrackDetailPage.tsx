@@ -2,7 +2,6 @@ import React from 'react'
 import { useParams, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { IdentitiesPanel } from '../components/IdentitiesPanel'
 import { CandidatesPanel } from '../components/CandidatesPanel'
-import { YouTubeSearchPanel } from '../components/YouTubeSearchPanel'
 
 export const TrackDetailPage: React.FC = () => {
   const { id } = useParams()
@@ -19,8 +18,7 @@ export const TrackDetailPage: React.FC = () => {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <NavLink to="overview">Overview</NavLink>
         <NavLink to="identities">Identities</NavLink>
-        <NavLink to="candidates">Candidates</NavLink>
-        <NavLink to="search">YouTube Search</NavLink>
+  <NavLink to="candidates">Candidates</NavLink>
       </div>
       <div>
         <Outlet />
@@ -52,6 +50,5 @@ export const TrackOverviewTab: React.FC = () => {
 
 export const TrackIdentitiesTab: React.FC = () => <IdentitiesPanel />
 export const TrackCandidatesTab: React.FC = () => <CandidatesPanel />
-export const TrackSearchTab: React.FC = () => <YouTubeSearchPanel />
 
 export default TrackDetailPage
