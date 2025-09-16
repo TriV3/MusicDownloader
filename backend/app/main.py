@@ -115,6 +115,18 @@ async def on_startup():
         except Exception:
             pass
 
+        # Auto-migrate playlists.selected column (Step 3.1)
+        try:  # pragma: no cover
+            result = await conn.exec_driver_sql("PRAGMA table_info(playlists)")
+            pcols = [row[1] for row in result.fetchall()]
+            if "selected" not in pcols:
+                try:
+                    await conn.exec_driver_sql("ALTER TABLE playlists ADD COLUMN selected BOOLEAN DEFAULT 0 NOT NULL")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     # Start download worker(s) unless disabled (e.g., in tests)
     import os
     if os.environ.get("DISABLE_DOWNLOAD_WORKER", "0") not in {"1", "true", "TRUE", "True"}:

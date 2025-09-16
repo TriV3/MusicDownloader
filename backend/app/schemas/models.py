@@ -55,6 +55,7 @@ class PlaylistCreate(BaseModel):
     description: Optional[str] = None
     owner: Optional[str] = None
     snapshot: Optional[str] = None
+    selected: bool = False
 
 
 class PlaylistRead(PlaylistCreate):

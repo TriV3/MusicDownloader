@@ -2,6 +2,8 @@ import React from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import DashboardPage from './routes/DashboardPage'
 import TracksPage from './routes/TracksPage'
+import PlaylistsPage from './routes/PlaylistsPage'
+import OAuthSpotifyCallback from './routes/OAuthSpotifyCallback'
 import ImportPage from './routes/ImportPage'
 import ToolsPage from './routes/ToolsPage'
 import TrackDetailPage, { TrackOverviewTab, TrackIdentitiesTab, TrackCandidatesTab } from './routes/TrackDetailPage'
@@ -16,6 +18,7 @@ export default function App() {
           <nav style={{ display: 'flex', gap: 8 }}>
             <NavLink to="/" end>Dashboard</NavLink>
             <NavLink to="/tracks">Tracks</NavLink>
+            <NavLink to="/playlists">Playlists</NavLink>
             <NavLink to="/import">Import</NavLink>
             <NavLink to="/tools">Tools</NavLink>
             <NavLink to="/downloads">Downloads</NavLink>
@@ -24,6 +27,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/tracks" element={<TracksPage />} />
+          <Route path="/playlists" element={<PlaylistsPage />} />
+          <Route path="/oauth/spotify/callback" element={<OAuthSpotifyCallback />} />
           <Route path="/tracks/:id" element={<TrackDetailPage />}>
             <Route index element={<Navigate to="overview" replace />} />
             <Route path="overview" element={<TrackOverviewTab />} />

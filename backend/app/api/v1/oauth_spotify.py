@@ -9,20 +9,22 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, Request
+from fastapi.responses import RedirectResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
     from ...db.session import get_session  # type: ignore
     from ...db.models.models import OAuthState, OAuthToken, SourceAccount, SourceProvider  # type: ignore
-    from ...schemas.models import OAuthTokenRead  # type: ignore
+    from ...schemas.models import OAuthTokenRead, SourceAccountRead  # type: ignore
     from ...utils.crypto import encrypt_text, decrypt_text  # type: ignore
     from ...core.config import settings  # type: ignore
 except Exception:  # pragma: no cover
     from db.session import get_session  # type: ignore
     from db.models.models import OAuthState, OAuthToken, SourceAccount, SourceProvider  # type: ignore
-    from schemas.models import OAuthTokenRead  # type: ignore
+    from schemas.models import OAuthTokenRead, SourceAccountRead  # type: ignore
     from utils.crypto import encrypt_text, decrypt_text  # type: ignore
     from core.config import settings  # type: ignore
 
@@ -52,6 +54,48 @@ def _gen_pkce() -> tuple[str, str]:
     digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
     code_challenge = _b64url(digest)
     return code_verifier, code_challenge
+
+
+@router.post("/ensure_account", response_model=SourceAccountRead)
+async def ensure_account(
+    name: Optional[str] = Body(default=None, embed=True, description="Optional account name; defaults to 'Default Spotify'"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Create or return a Spotify SourceAccount so the frontend can start OAuth without listing accounts.
+
+    If an account with the provided (or default) name exists, it is returned. Otherwise a new enabled account is created.
+    """
+    from sqlalchemy import select as _select
+
+    acc_name = name or "Default Spotify"
+    result = await session.execute(
+        _select(SourceAccount).where(
+            SourceAccount.type == SourceProvider.spotify,
+            SourceAccount.name == acc_name,
+        )
+    )
+    acc: Optional[SourceAccount] = result.scalars().first()
+    if acc:
+        return acc
+    acc = SourceAccount(type=SourceProvider.spotify, name=acc_name, enabled=True)
+    session.add(acc)
+    try:
+        await session.flush()
+        return acc
+    except IntegrityError:
+        # Another concurrent request created it; fetch and return existing
+        await session.rollback()
+        result2 = await session.execute(
+            _select(SourceAccount).where(
+                SourceAccount.type == SourceProvider.spotify,
+                SourceAccount.name == acc_name,
+            )
+        )
+        acc2 = result2.scalars().first()
+        if acc2:
+            return acc2
+        # Fallback: re-raise if still missing
+        raise
 
 
 @router.get("/authorize")
@@ -99,6 +143,7 @@ async def authorize(
 async def callback(
     code: str,
     state: str,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ):
     client_id = settings.spotify_client_id or _get_env("SPOTIFY_CLIENT_ID")
@@ -169,7 +214,12 @@ async def callback(
     oauth_state.consumed = True
     oauth_state.used_at = datetime.now(timezone.utc)
 
-    # Redirect handling is frontend concern; here we return JSON including redirect target
+    # Browser UX: if client prefers HTML and we have a redirect target, do a 302 redirect.
+    accept = request.headers.get("accept", "")
+    if oauth_state.redirect_to and ("text/html" in accept or "*/*" in accept and "application/json" not in accept):
+        return RedirectResponse(url=str(oauth_state.redirect_to), status_code=302)
+
+    # Default API response (keeps tests stable)
     return {"status": "ok", "redirect_to": oauth_state.redirect_to}
 
 

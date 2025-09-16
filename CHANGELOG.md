@@ -9,6 +9,14 @@ Versioning scheme:
 Unreleased
 - Planning and work in progress.
 
+0.3.1 — Phase 3: Spotify Playlist Discovery
+- Added `selected` flag to Playlist model with auto-migration.
+- API: `GET /api/v1/playlists/spotify/discover` to fetch playlists using stored Spotify OAuth token; optional `persist` to upsert.
+- API: `POST /api/v1/playlists/spotify/select` to mark selected playlists (unselect others for the same account).
+- API: Enhanced `/api/v1/playlists` with filters (`provider`, `account_id`, `selected`).
+- Frontend: New Playlists page to discover and select playlists.
+- Tests: Added coverage for discovery and selection with mocked Spotify API.
+
 0.1.3 — Phase 1: SearchCandidate Endpoints + Enhancements (Track Manager, Auto Normalization, Track Deletion)
 - Added CRUD API `/api/v1/candidates` with sorting (score desc, duration delta asc) and choose endpoint.
 - Added computed `duration_delta_sec` in responses.

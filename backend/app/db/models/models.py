@@ -73,6 +73,7 @@ class Playlist(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     owner: Mapped[Optional[str]] = mapped_column(String(200))
     snapshot: Mapped[Optional[str]] = mapped_column(String(200))
+    selected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

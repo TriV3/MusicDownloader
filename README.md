@@ -54,6 +54,7 @@ Frontend navigation (React Router):
 - `/` Dashboard
 - `/tracks` Tracks list
 - `/tracks/:id` Track detail with tabs: `overview`, `identities`, `candidates`, `search`
+- `/playlists` Discover and select Spotify playlists
 - `/import` JSON import workflow
 - `/tools` Normalization playground
 
@@ -66,6 +67,15 @@ Variables are loaded from `backend/.env` (via python-dotenv) and can be overridd
 	- `SPOTIFY_CLIENT_ID`
 	- `SPOTIFY_CLIENT_SECRET`
 	- `SPOTIFY_REDIRECT_URI` (e.g., `http://localhost:8000/api/v1/oauth/spotify/callback` or a frontend URL that forwards to the backend callback)
+
+For playlist discovery (Step 3.1):
+- Create a Spotify `SourceAccount` via `/api/v1/sources/accounts` (e.g., name "My Spotify").
+- Complete the OAuth flow or POST an `OAuthToken` with a valid access token.
+- Use the Playlists page to Discover (optionally persist) and Select playlists for sync.
+
+Frontend UX:
+- The Playlists page tries a silent token refresh on load; if successful it shows "Connected to Spotify" and immediately discovers playlists.
+- If not connected yet, click "Connect to Spotify" to initiate OAuth; after consent you'll be redirected back to `/playlists`.
 
 - YouTube Search:
 	- `YOUTUBE_SEARCH_LIMIT` (default 8) maximum results to request.

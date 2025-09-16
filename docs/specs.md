@@ -271,6 +271,14 @@ Implementation (completed):
 **Validation Criteria:**
 1. API returns playlists with names and ids
 2. Selection persists between sessions
+ 
+Implementation (completed):
+- Added `selected` flag to `Playlist` model and auto-migration.
+- Endpoint: `GET /api/v1/playlists/spotify/discover?account_id={id}&persist=true|false` to fetch user playlists using the stored OAuth token.
+- Endpoint: `POST /api/v1/playlists/spotify/select` body `{ account_id, playlist_ids: string[] }` marks selected playlists (others for the account are unselected).
+- Enhanced `GET /api/v1/playlists/` filters: `provider`, `account_id`, `selected`.
+- Frontend: new Playlists page to discover from Spotify and toggle selection, wired in the navbar. On load, it attempts a silent token refresh (if a refresh token is stored) and shows a "Connected to Spotify" indicator, hiding the Connect button when already connected.
+- Tests: Added `test_spotify_playlists.py` mocking Spotify API to validate discover and selection persistence.
 
 ### Step 3.2: Playlist Sync Job
 - Fetch items for selected playlists
