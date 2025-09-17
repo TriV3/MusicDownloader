@@ -9,6 +9,12 @@ Versioning scheme:
 Unreleased
 - Planning and work in progress.
 
+0.3.4 — Phase 3: Spotify UI (Step 3.4)
+- Frontend Playlists page implements Spotify connect (PKCE OAuth), discovery, selection, and sync triggers.
+- Silent token refresh on load; shows connected status.
+- Discover lists playlists with owner and snapshot; selection persists; Sync reports created/updated/linked summary.
+- Wired into navbar and dev proxy; redirects back to `/playlists` after successful callback.
+
 0.3.3 — Phase 3: Incremental Spotify Playlist Sync (Step 3.3)
 - Incremental sync logic for `POST /api/v1/playlists/spotify/sync`.
 - Uses Spotify playlist `snapshot_id` to skip unchanged playlists.

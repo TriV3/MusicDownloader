@@ -49,9 +49,9 @@ Then open http://localhost:8000
 Connect Spotify
 1) Ensure Spotify env variables are set in `backend/.env` and the API is running.
 2) Open the web app (http://localhost:5173 during dev, or http://localhost:8000 when built).
-3) Click “Connect to Spotify” in the UI (e.g., Sources or Settings page).
+3) Navigate to the Playlists page and click “Connect to Spotify”.
 4) Approve the permissions on Spotify’s website.
-5) You’ll be redirected back to the app; the account will show as connected.
+5) You’ll be redirected back to `/playlists`; the page shows “Connected to Spotify”. You can now Discover, Select, and Sync playlists.
 
 Troubleshooting
 - Missing Spotify configuration: set SPOTIFY_CLIENT_ID/SECRET/REDIRECT_URI in `backend/.env`, restart the API, and retry.

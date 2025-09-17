@@ -309,6 +309,16 @@ Implementation (completed):
 1. User can select playlists and trigger sync from UI
 2. Progress and outcomes are visible in real time or via refresh
 
+Implementation (completed):
+- Frontend Playlists page (`/playlists`) provides end-to-end Spotify UX:
+	- On first load it POSTs `/api/v1/oauth/spotify/ensure_account` to create/return a Spotify `SourceAccount`.
+	- Attempts a silent POST `/api/v1/oauth/spotify/refresh?account_id={id}`; on success, shows “Connected to Spotify” and auto-enables discovery.
+	- “Connect to Spotify” button calls `GET /api/v1/oauth/spotify/authorize?account_id={id}&redirect_to={front_url}` and navigates user to Spotify; the backend callback (`/api/v1/oauth/spotify/callback`) persists tokens and redirects back to `/playlists`.
+	- “Discover from Spotify” calls `GET /api/v1/playlists/spotify/discover?account_id={id}&persist=true|false` and renders results.
+	- Selection checkboxes map to `POST /api/v1/playlists/spotify/select` with `{ account_id, playlist_ids }`.
+	- “Sync selected” triggers `POST /api/v1/playlists/spotify/sync?account_id={id}` and displays a compact summary (created/updated/linked counts). The message updates upon completion (simple progress visibility via UI state; advanced progress to be enhanced later if needed).
+- Navbar contains a Playlists link and the page is wired in the router. Vite dev proxy forwards `/api` to backend.
+
 ## Phase 4 — Matching and Deduplication
 
 ### Step 4.1: Candidate Scoring Heuristics
