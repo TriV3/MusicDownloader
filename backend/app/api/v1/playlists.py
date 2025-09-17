@@ -207,9 +207,19 @@ async def spotify_sync_playlists(
     """
     Sync selected Spotify playlists (or a provided subset) into local Tracks and PlaylistTrack mappings.
 
+    Incremental behaviour (Step 3.3):
+    - Each playlist's current Spotify `snapshot_id` is fetched first.
+    - If the stored `Playlist.snapshot` matches the remote snapshot, the playlist is skipped entirely.
+    - When the snapshot differs (or none stored), a full fetch of tracks occurs and:
+        * New tracks + identities are created.
+        * Existing tracks are minimally updated & re-normalized if core fields changed.
+        * PlaylistTrack links are created/updated (position / added_at).
+        * Links for tracks no longer present in the remote playlist are deleted (removals).
+        * The playlist's stored snapshot is updated to the new snapshot id.
+
     Body (optional): { "playlist_ids": ["spotify_playlist_id", ...] }
 
-    Returns a summary with created/updated counts.
+    Returns a summary including created/updated/linked/removed counts and skipped playlists.
     """
     account = await session.get(SourceAccount, account_id)
     if not account or account.type != SourceProvider.spotify:
@@ -255,6 +265,16 @@ async def spotify_sync_playlists(
 
     access_token = await _get_valid_token(session, account_id)
 
+    async def fetch_playlist_snapshot(pl_id: str) -> Optional[str]:
+        """Fetch only the snapshot id for a playlist (cheap metadata call)."""
+        async with httpx.AsyncClient(timeout=15) as client:
+            url = f"https://api.spotify.com/v1/playlists/{pl_id}?fields=snapshot_id"
+            resp = await client.get(url, headers={"Authorization": f"Bearer {access_token}"})
+            if resp.status_code != 200:
+                raise HTTPException(status_code=400, detail=f"Spotify API error: {resp.text}")
+            data = resp.json() or {}
+            return data.get("snapshot_id")
+
     async def fetch_playlist_tracks(pl_id: str) -> List[dict]:
         items: List[dict] = []
         async with httpx.AsyncClient(timeout=30) as client:
@@ -269,11 +289,35 @@ async def spotify_sync_playlists(
         return items
 
     # Build identity index to minimize queries (optional micro-optimization omitted for clarity)
-    total_created = total_updated = total_linked = 0
+    total_created = total_updated = total_linked = total_removed = 0
     summaries = []
 
     for pl in target_playlists:
-        created = updated = linked = 0
+        created = updated = linked = removed = 0
+
+        # Determine if playlist snapshot changed; fetch remote snapshot first
+        remote_snapshot: Optional[str] = None
+        if pl.provider_playlist_id:
+            try:
+                remote_snapshot = await fetch_playlist_snapshot(pl.provider_playlist_id)
+            except HTTPException:
+                # If snapshot fetch fails, fall back to full sync attempt (raise original later if track fetch fails)
+                remote_snapshot = None
+
+        if pl.snapshot and remote_snapshot and pl.snapshot == remote_snapshot:
+            # No change; skip playlist
+            summaries.append({
+                "playlist_id": pl.id,
+                "provider_playlist_id": pl.provider_playlist_id,
+                "name": pl.name,
+                "tracks_created": 0,
+                "tracks_updated": 0,
+                "links_created": 0,
+                "links_removed": 0,
+                "skipped": True,
+            })
+            continue
+
         items = await fetch_playlist_tracks(pl.provider_playlist_id or "")
 
         # Track position based on returned order
@@ -282,6 +326,7 @@ async def spotify_sync_playlists(
         sp_track_ids: list[str] = []
         # Map provider_track_id -> (Track, added_at_dt)
         track_refs: dict[str, tuple[Track, Optional[Any]]] = {}
+        new_playlist_track_ids: set[int] = set()
         for it in items:
             tr = (it or {}).get("track") or {}
             if not tr or tr.get("id") is None:
@@ -409,8 +454,28 @@ async def spotify_sync_playlists(
                 )
                 session.add(link)
                 linked += 1
+            else:
+                # Update position on incremental sync (e.g., reorders)
+                link.position = pos
+                # If added_at not persisted yet and remote provides one, capture it
+                if added_at and not link.added_at:
+                    link.added_at = added_at
+            new_playlist_track_ids.add(track.id)
 
         # Audio feature enrichment removed (Spotify endpoint not available / deprecated for this application)
+
+        # Detect removals: any existing link not in new set
+        result_links = await session.execute(
+            select(PlaylistTrack).where(PlaylistTrack.playlist_id == pl.id)
+        )
+        for existing_link in result_links.scalars().all():
+            if existing_link.track_id not in new_playlist_track_ids:
+                await session.delete(existing_link)
+                removed += 1
+
+        # Update stored snapshot after successful sync
+        if remote_snapshot:
+            pl.snapshot = remote_snapshot
 
         summaries.append({
             "playlist_id": pl.id,
@@ -419,16 +484,20 @@ async def spotify_sync_playlists(
             "tracks_created": created,
             "tracks_updated": updated,
             "links_created": linked,
+            "links_removed": removed,
+            "skipped": False,
         })
         total_created += created
         total_updated += updated
         total_linked += linked
+        total_removed += removed
 
     return {
         "playlists": summaries,
         "total_tracks_created": total_created,
         "total_tracks_updated": total_updated,
         "total_links_created": total_linked,
+        "total_links_removed": total_removed,
     }
 @router.get("/{playlist_id}/entries")
 async def list_playlist_entries(

@@ -9,6 +9,14 @@ Versioning scheme:
 Unreleased
 - Planning and work in progress.
 
+0.3.3 — Phase 3: Incremental Spotify Playlist Sync (Step 3.3)
+- Incremental sync logic for `POST /api/v1/playlists/spotify/sync`.
+- Uses Spotify playlist `snapshot_id` to skip unchanged playlists.
+- Detects removals (deleted tracks) and deletes corresponding `PlaylistTrack` links.
+- Updates positions for reordered items and preserves/sets `added_at` when newly available.
+- Returns new summary fields per playlist: `links_removed`, `skipped` plus global `total_links_removed`.
+- Added test `test_spotify_incremental_sync.py` covering initial sync, skipped sync, and changed snapshot with additions/removals.
+
 0.3.2 — Phase 3: Spotify Playlist Sync
 - API: `POST /api/v1/playlists/spotify/sync` to fetch tracks from selected Spotify playlists and upsert Tracks, Identities, and PlaylistTrack mappings.
 - Idempotent: running the sync multiple times does not duplicate tracks or links.
