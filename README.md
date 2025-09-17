@@ -122,7 +122,13 @@ old/               # Legacy code kept for reference
 - CRUD endpoints for sources, playlists, and tracks.
 - OAuth storage API and Spotify OAuth (PKCE) endpoints (authorize, callback, refresh) with encrypted refresh tokens.
 - React + Vite frontend with panels: normalization playground, identities, YouTube search (scored), candidates list, JSON import.
-	The tracks list also shows cover images, genre, bpm, duration, and timestamps.
+	The tracks list shows cover images, genre, bpm, duration, and timestamps.
+- Playlist integration:
+	- Discover & select Spotify playlists, sync tracks (creates/updates Tracks & PlaylistTrack mappings)
+	- Track Manager playlist dropdown filters to the selected playlist using `/api/v1/playlists/{id}/entries` preserving ordering.
+	- Playlist memberships column shows all playlists (with position) a track belongs to.
+<!-- Removed: Spotify audio features ingestion (fields deprecated and removed from the schema) -->
+- Increased `/api/v1/tracks` max `limit` query parameter to 1000 for broader library browsing.
 - Pytest test suite (health, CRUD basics, crypto, mocked Spotify OAuth, YouTube search scoring with fake results).
 - YouTube search endpoint: `GET /api/v1/tracks/{track_id}/youtube/search` params:
 	- `prefer_extended` (bool) boosts Extended/Club Mix results.

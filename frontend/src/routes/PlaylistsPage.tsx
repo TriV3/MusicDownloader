@@ -24,6 +24,8 @@ const PlaylistsPage: React.FC = () => {
   const [selectedIds, setSelectedIds] = React.useState<string[]>([])
   const [authUrl, setAuthUrl] = React.useState<string | null>(null)
   const [busyAuth, setBusyAuth] = React.useState(false)
+  const [syncing, setSyncing] = React.useState(false)
+  const [lastSync, setLastSync] = React.useState<string | null>(null)
 
   // Ensure we have a Spotify account (backend will create if missing)
   React.useEffect(() => {
@@ -38,13 +40,17 @@ const PlaylistsPage: React.FC = () => {
           const rf = await fetch(`/api/v1/oauth/spotify/refresh?account_id=${acc.id}`, { method: 'POST' })
           if (rf.ok) {
             setConnected(true)
-            // Optionally auto-discover after refresh
             await discover(acc.id)
           } else {
+            // Attempt to parse JSON error; fallback to text
+            let msg: string
+            try { msg = (await rf.json()).detail || rf.statusText } catch { msg = await rf.text() }
+            console.warn('Spotify refresh failed:', rf.status, msg)
             setConnected(false)
           }
-        } catch {
-          setConnected(false)
+        } catch (e) {
+            console.warn('Spotify refresh exception', e)
+            setConnected(false)
         }
       } catch {}
     })()
@@ -99,6 +105,31 @@ const PlaylistsPage: React.FC = () => {
     }
   }
 
+  const syncSelected = async () => {
+    if (!accountId) return
+    setSyncing(true)
+    try {
+      const r = await fetch(`/api/v1/playlists/spotify/sync?account_id=${accountId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+      if (!r.ok) {
+        let errDetail = ''
+        try { errDetail = (await r.json()).detail } catch { errDetail = await r.text() }
+        setLastSync(`Sync failed (${r.status}): ${errDetail.substring(0,180)}`)
+        return
+      }
+      let data: any = {}
+      try { data = await r.json() } catch { data = {} }
+      if (typeof data.total_tracks_created === 'number') {
+        setLastSync(`Created ${data.total_tracks_created}, Updated ${data.total_tracks_updated}, Linked ${data.total_links_created}`)
+      } else {
+        setLastSync('Sync completed (no summary fields)')
+      }
+    } catch (e:any) {
+      setLastSync('Sync error: ' + (e?.message || e))
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <h2>Playlists</h2>
@@ -113,6 +144,8 @@ const PlaylistsPage: React.FC = () => {
         </label>
         <button onClick={() => discover()} disabled={!accountId || loading}>{loading ? 'Loading…' : 'Discover from Spotify'}</button>
         <button onClick={saveSelection} disabled={!accountId}>Save selection</button>
+        <button onClick={syncSelected} disabled={!accountId || syncing}>{syncing ? 'Syncing…' : 'Sync selected'}</button>
+        {lastSync && <span style={{ marginLeft: 8, opacity: 0.8 }}>{lastSync}</span>}
       </div>
 
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>

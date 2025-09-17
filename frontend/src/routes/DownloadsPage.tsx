@@ -44,11 +44,15 @@ export const DownloadsPage: React.FC = () => {
     }
   }, [])
 
-  React.useEffect(() => {
-    load()
-    const id = setInterval(load, 1500)
-    return () => clearInterval(id)
-  }, [load])
+  React.useEffect(() => { load() }, [load])
+  // Removed continuous 1.5s polling. Use the Refresh buttons to update manually.
+  // Optional scaffold if you later want a toggle:
+  // const [autoRefresh, setAutoRefresh] = React.useState(false)
+  // React.useEffect(() => {
+  //   if (!autoRefresh) return
+  //   const id = setInterval(load, 5000)
+  //   return () => clearInterval(id)
+  // }, [autoRefresh, load])
   const loadReady = React.useCallback(async () => {
     setLoadingReady(true)
     try {

@@ -289,6 +289,11 @@ Implementation (completed):
 1. First sync creates tracks and mappings with no duplicates
 2. Re-running sync is idempotent
 
+Implementation (completed):
+- Endpoint: `POST /api/v1/playlists/spotify/sync?account_id={id}` optionally with body `{ "playlist_ids": ["..." ] }`.
+- For each playlist item: upserts `Track` (with normalization), creates `TrackIdentity` for Spotify id if missing, and creates `PlaylistTrack` link once.
+- Uses album images for `cover_url` when available and fills `isrc` if present. `added_at` is parsed to a datetime. Repeated runs do not duplicate tracks or links.
+
 ### Step 3.3: Incremental Sync
 - Track cursors/ETags to fetch only changes
 - Handle additions/removals and track metadata updates

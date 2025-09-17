@@ -1,7 +1,7 @@
 from typing import List, Optional
 import re
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, delete, desc
+from sqlalchemy import select, delete, desc, asc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
@@ -44,22 +44,62 @@ except Exception:  # pragma: no cover
 
 router = APIRouter(prefix="/tracks", tags=["tracks"])
 
+@router.get("/raw_min")
+async def list_tracks_raw_min(
+    session: AsyncSession = Depends(get_session),
+    limit: int = Query(5, ge=1, le=1000),
+):
+    stmt = select(Track).order_by(desc(Track.updated_at)).limit(limit)
+    rows = (await session.execute(stmt)).scalars().all()
+    out = []
+    for t in rows:
+        out.append({
+            "id": t.id,
+            "title": t.title,
+            "artists": t.artists,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+        })
+    return out
+
 
 @router.get("/", response_model=List[TrackRead])
 async def list_tracks(
     session: AsyncSession = Depends(get_session),
     q: Optional[str] = Query(None, description="Filter by title/artists contains (case-insensitive)"),
-    limit: int = Query(100, ge=1, le=500),
+    playlist_id: Optional[int] = Query(None, description="Filter by playlist id and order by playlist position"),
+    limit: int = Query(100, ge=1, le=1000),
 ):
-    stmt = select(Track).order_by(desc(Track.updated_at)).limit(limit)
+    # Default ordering
+    stmt = select(Track)
+    order_cols = [desc(Track.updated_at)]
+
+    # Filter by search query
     if q:
         from sqlalchemy import or_, func
         like = f"%{q.lower()}%"
         stmt = select(Track).where(
             or_(func.lower(Track.title).like(like), func.lower(Track.artists).like(like))
-        ).order_by(desc(Track.updated_at)).limit(limit)
+        )
+
+    # Filter by playlist: join PlaylistTrack to constrain and order by position
+    if playlist_id is not None:
+        stmt = stmt.join(PlaylistTrack, PlaylistTrack.track_id == Track.id).where(
+            PlaylistTrack.playlist_id == playlist_id
+        )
+        order_cols = [asc(PlaylistTrack.position.nullslast()), desc(Track.updated_at)]
+
+    stmt = stmt.order_by(*order_cols).limit(limit)
     result = await session.execute(stmt)
-    return result.scalars().all()
+    rows = result.scalars().all()
+    try:
+        import logging
+        logging.getLogger("tracks").info("list_tracks returned %s rows (limit=%s, playlist_id=%s)", len(rows), limit, playlist_id)
+        if rows:
+            logging.getLogger("tracks").debug("first track id=%s title=%s", rows[0].id, rows[0].title)
+    except Exception:
+        pass
+    return rows
 
 
 # Accept both with and without trailing slash
@@ -67,9 +107,10 @@ async def list_tracks(
 async def list_tracks_no_slash(
     session: AsyncSession = Depends(get_session),
     q: Optional[str] = Query(None, description="Filter by title/artists contains (case-insensitive)"),
-    limit: int = Query(100, ge=1, le=500),
+    playlist_id: Optional[int] = Query(None, description="Filter by playlist id and order by playlist position"),
+    limit: int = Query(100, ge=1, le=1000),
 ):
-    return await list_tracks(session=session, q=q, limit=limit)
+    return await list_tracks(session=session, q=q, playlist_id=playlist_id, limit=limit)
 
 
 @router.post("/", response_model=TrackRead)

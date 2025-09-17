@@ -1,21 +1,24 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, and_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
     from ...db.session import get_session  # type: ignore
-    from ...db.models.models import Playlist, SourceProvider, SourceAccount, OAuthToken  # type: ignore
-    from ...schemas.models import PlaylistCreate, PlaylistRead  # type: ignore
+    from ...db.models.models import Playlist, SourceProvider, SourceAccount, OAuthToken, Track, TrackIdentity, PlaylistTrack  # type: ignore
+    from ...schemas.models import PlaylistCreate, PlaylistRead, TrackRead  # type: ignore
     from ...core.config import settings  # type: ignore
+    from ...utils.normalize import normalize_track  # type: ignore
 except Exception:  # pragma: no cover
     from db.session import get_session  # type: ignore
-    from db.models.models import Playlist, SourceProvider, SourceAccount, OAuthToken  # type: ignore
-    from schemas.models import PlaylistCreate, PlaylistRead  # type: ignore
+    from db.models.models import Playlist, SourceProvider, SourceAccount, OAuthToken, Track, TrackIdentity, PlaylistTrack  # type: ignore
+    from schemas.models import PlaylistCreate, PlaylistRead, TrackRead  # type: ignore
     from core.config import settings  # type: ignore
+    from utils.normalize import normalize_track  # type: ignore
 
 import os
 import httpx
+import time
 
 
 router = APIRouter(prefix="/playlists", tags=["playlists"])
@@ -193,3 +196,321 @@ async def spotify_select_playlists(
             row.selected = False
 
     return selected_rows
+
+
+@router.post("/spotify/sync")
+async def spotify_sync_playlists(
+    account_id: int = Query(..., description="Spotify SourceAccount id"),
+    body: Optional[Dict[str, Any]] = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Sync selected Spotify playlists (or a provided subset) into local Tracks and PlaylistTrack mappings.
+
+    Body (optional): { "playlist_ids": ["spotify_playlist_id", ...] }
+
+    Returns a summary with created/updated counts.
+    """
+    account = await session.get(SourceAccount, account_id)
+    if not account or account.type != SourceProvider.spotify:
+        raise HTTPException(status_code=404, detail="Spotify account not found")
+
+    # Determine target playlists
+    explicit_ids = set((body or {}).get("playlist_ids") or [])
+    target_playlists: List[Playlist] = []
+    if explicit_ids:
+        result = await session.execute(
+            select(Playlist).where(
+                Playlist.provider == SourceProvider.spotify,
+                Playlist.provider_playlist_id.in_(list(explicit_ids)),
+            )
+        )
+        target_playlists = result.scalars().all()
+        # Ensure all requested ids exist minimally
+        existing_ids = {p.provider_playlist_id for p in target_playlists}
+        for pid in explicit_ids:
+            if pid not in existing_ids:
+                p = Playlist(
+                    provider=SourceProvider.spotify,
+                    name=pid,
+                    source_account_id=account_id,
+                    provider_playlist_id=pid,
+                    selected=True,
+                )
+                session.add(p)
+                await session.flush()
+                target_playlists.append(p)
+    else:
+        result = await session.execute(
+            select(Playlist).where(
+                Playlist.provider == SourceProvider.spotify,
+                Playlist.source_account_id == account_id,
+                Playlist.selected == True,  # noqa: E712
+            )
+        )
+        target_playlists = result.scalars().all()
+
+    if not target_playlists:
+        return {"playlists": [], "total_tracks_created": 0, "total_tracks_updated": 0, "total_links_created": 0}
+
+    access_token = await _get_valid_token(session, account_id)
+
+    async def fetch_playlist_tracks(pl_id: str) -> List[dict]:
+        items: List[dict] = []
+        async with httpx.AsyncClient(timeout=30) as client:
+            url = f"https://api.spotify.com/v1/playlists/{pl_id}/tracks?limit=100"
+            while url:
+                resp = await client.get(url, headers={"Authorization": f"Bearer {access_token}"})
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=400, detail=f"Spotify API error: {resp.text}")
+                data = resp.json()
+                items.extend(data.get("items", []))
+                url = data.get("next")
+        return items
+
+    # Build identity index to minimize queries (optional micro-optimization omitted for clarity)
+    total_created = total_updated = total_linked = 0
+    summaries = []
+
+    for pl in target_playlists:
+        created = updated = linked = 0
+        items = await fetch_playlist_tracks(pl.provider_playlist_id or "")
+
+        # Track position based on returned order
+        pos = 0
+        # Collect Spotify track ids to batch fetch audio features after initial upsert
+        sp_track_ids: list[str] = []
+        # Map provider_track_id -> (Track, added_at_dt)
+        track_refs: dict[str, tuple[Track, Optional[Any]]] = {}
+        for it in items:
+            tr = (it or {}).get("track") or {}
+            if not tr or tr.get("id") is None:
+                continue
+            pos += 1
+
+            sp_track_id: str = tr.get("id")
+            title: str = tr.get("name") or ""
+            artists_list = tr.get("artists") or []
+            artists_names = ", ".join([a.get("name") for a in artists_list if a and a.get("name")])
+            album = (tr.get("album") or {}).get("name")
+            images = (tr.get("album") or {}).get("images") or []
+            duration_ms = tr.get("duration_ms")
+            isrc = None
+            ext_ids = tr.get("external_ids") or {}
+            if isinstance(ext_ids, dict):
+                isrc = ext_ids.get("isrc")
+            added_at_raw = it.get("added_at")
+            added_at = None
+            if isinstance(added_at_raw, str) and added_at_raw:
+                # Convert ISO8601 with possible 'Z' suffix to timezone-aware datetime
+                try:
+                    from datetime import datetime
+                    iso = added_at_raw.replace("Z", "+00:00") if added_at_raw.endswith("Z") else added_at_raw
+                    added_at = datetime.fromisoformat(iso)
+                except Exception:
+                    added_at = None
+
+            # Find existing track via identity
+            result = await session.execute(
+                select(TrackIdentity, Track)
+                .join(Track, Track.id == TrackIdentity.track_id)
+                .where(
+                    TrackIdentity.provider == SourceProvider.spotify,
+                    TrackIdentity.provider_track_id == sp_track_id,
+                )
+            )
+            row = result.first()
+            if row:
+                identity, track = row
+                # Update minimal fields to reflect latest metadata
+                before = (track.title, track.artists, track.album, track.duration_ms, track.isrc)
+                track.title = title or track.title
+                track.artists = artists_names or track.artists
+                track.album = album or track.album
+                track.duration_ms = duration_ms or track.duration_ms
+                track.isrc = isrc or track.isrc
+                # Normalize if changed
+                after = (track.title, track.artists, track.album, track.duration_ms, track.isrc)
+                if after != before:
+                    n = normalize_track(track.artists, track.title)
+                    track.normalized_artists = n.normalized_artists
+                    track.normalized_title = n.normalized_title
+                    updated += 1
+                # Prefer Spotify album art if none set
+                if not track.cover_url and images:
+                    best = max(images, key=lambda im: im.get("width") or 0)
+                    if best and best.get("url"):
+                        track.cover_url = best.get("url")
+            else:
+                # Create new track and identity
+                n = normalize_track(artists_names, title)
+                track = Track(
+                    title=title or "",
+                    artists=artists_names or "",
+                    album=album,
+                    duration_ms=duration_ms,
+                    isrc=isrc,
+                    explicit=bool(tr.get("explicit")) if tr.get("explicit") is not None else False,
+                    cover_url=(max(images, key=lambda im: im.get("width") or 0).get("url") if images else None),
+                    normalized_title=n.normalized_title,
+                    normalized_artists=n.normalized_artists,
+                    # created_at will be overwritten below if we have added_at earlier
+                )
+                session.add(track)
+                await session.flush()
+                identity = TrackIdentity(
+                    track_id=track.id,
+                    provider=SourceProvider.spotify,
+                    provider_track_id=sp_track_id,
+                    provider_url=f"https://open.spotify.com/track/{sp_track_id}",
+                )
+                session.add(identity)
+                created += 1
+
+            # Potentially adjust created_at to playlist added_at if earlier (keeping earliest known ingestion date)
+            # Normalize timezone differences: DB naive vs Spotify UTC aware
+            if added_at and track.created_at:
+                try:
+                    cmp_added = added_at
+                    cmp_created = track.created_at
+                    if cmp_added.tzinfo is not None and cmp_created.tzinfo is None:
+                        # make added_at naive for comparison
+                        cmp_added = cmp_added.replace(tzinfo=None)
+                    elif cmp_added.tzinfo is None and cmp_created.tzinfo is not None:
+                        # make created_at naive (copy) for comparison
+                        cmp_created = cmp_created.replace(tzinfo=None)
+                    if cmp_added < cmp_created:
+                        # assign stored created_at using same naive/aware style as existing field to avoid mixing
+                        track.created_at = cmp_added if track.created_at.tzinfo else cmp_added.replace(tzinfo=None)
+                except Exception:
+                    pass  # comparison failures are non-fatal
+
+            # Stash ref for audio features batch fetch
+            sp_track_ids.append(sp_track_id)
+            track_refs[sp_track_id] = (track, added_at)
+
+            # Ensure playlist exists and link
+            if pl.source_account_id is None:
+                pl.source_account_id = account_id
+            # Position and added_at mapping
+            result = await session.execute(
+                select(PlaylistTrack).where(
+                    PlaylistTrack.playlist_id == pl.id,
+                    PlaylistTrack.track_id == track.id,
+                )
+            )
+            link = result.scalars().first()
+            if not link:
+                link = PlaylistTrack(
+                    playlist_id=pl.id,
+                    track_id=track.id,
+                    position=pos,
+                    added_at=added_at,
+                )
+                session.add(link)
+                linked += 1
+
+        # Audio feature enrichment removed (Spotify endpoint not available / deprecated for this application)
+
+        summaries.append({
+            "playlist_id": pl.id,
+            "provider_playlist_id": pl.provider_playlist_id,
+            "name": pl.name,
+            "tracks_created": created,
+            "tracks_updated": updated,
+            "links_created": linked,
+        })
+        total_created += created
+        total_updated += updated
+        total_linked += linked
+
+    return {
+        "playlists": summaries,
+        "total_tracks_created": total_created,
+        "total_tracks_updated": total_updated,
+        "total_links_created": total_linked,
+    }
+@router.get("/{playlist_id}/entries")
+async def list_playlist_entries(
+    playlist_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Return playlist entries with track details, ordered by position.
+
+    Response shape: [{ position, added_at, track: TrackRead }]
+    """
+    # Ensure playlist exists
+    pl = await session.get(Playlist, playlist_id)
+    if not pl:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    result = await session.execute(
+        select(PlaylistTrack, Track)
+        .join(Track, Track.id == PlaylistTrack.track_id)
+        .where(PlaylistTrack.playlist_id == playlist_id)
+        .order_by(PlaylistTrack.position.asc())
+    )
+    rows = result.all()
+    out: List[Dict[str, Any]] = []
+    for pt, tr in rows:
+        # Serialize track using existing schema for consistent fields
+        try:
+            tr_json = TrackRead.model_validate(tr).model_dump()  # type: ignore[attr-defined]
+        except Exception:
+            # Fallback: manual minimal fields
+            tr_json = {
+                "id": tr.id,
+                "title": tr.title,
+                "artists": tr.artists,
+                "album": tr.album,
+                "duration_ms": tr.duration_ms,
+                "isrc": tr.isrc,
+                "year": tr.year,
+                "explicit": tr.explicit,
+                "cover_url": tr.cover_url,
+                "normalized_title": tr.normalized_title,
+                "normalized_artists": tr.normalized_artists,
+                "genre": tr.genre,
+                "bpm": tr.bpm,
+                "created_at": tr.created_at,
+                "updated_at": tr.updated_at,
+            }
+        out.append({
+            "position": pt.position,
+            "added_at": pt.added_at.isoformat() if pt.added_at else None,
+            "track": tr_json,
+        })
+    return out
+
+
+@router.post("/memberships")
+async def playlists_memberships(
+    body: Dict[str, Any],
+    session: AsyncSession = Depends(get_session),
+):
+    """Return playlist memberships for given track ids.
+
+    Body: { "track_ids": [1,2,...] }
+
+    Response: { track_id: [ { playlist_id, playlist_name, position }, ... ], ... }
+    """
+    ids = list(body.get("track_ids") or [])
+    if not ids:
+        return {}
+    result = await session.execute(
+        select(PlaylistTrack, Playlist)
+        .join(Playlist, Playlist.id == PlaylistTrack.playlist_id)
+        .where(PlaylistTrack.track_id.in_(ids))
+    )
+    rows = result.all()
+    out: Dict[int, List[Dict[str, Any]]] = {}
+    for pt, pl in rows:
+        out.setdefault(pt.track_id, []).append({
+            "playlist_id": pl.id,
+            "playlist_name": pl.name,
+            "position": pt.position,
+        })
+    # Sort memberships by playlist name then position
+    for k, arr in out.items():
+        arr.sort(key=lambda x: (x.get("playlist_name") or "", x.get("position") or 0))
+    return out

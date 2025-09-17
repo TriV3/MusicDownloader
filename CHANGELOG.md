@@ -9,6 +9,11 @@ Versioning scheme:
 Unreleased
 - Planning and work in progress.
 
+0.3.2 — Phase 3: Spotify Playlist Sync
+- API: `POST /api/v1/playlists/spotify/sync` to fetch tracks from selected Spotify playlists and upsert Tracks, Identities, and PlaylistTrack mappings.
+- Idempotent: running the sync multiple times does not duplicate tracks or links.
+- Frontend: Playlists page adds a "Sync selected" button with a compact summary of created/updated/linked counts.
+
 0.3.1 — Phase 3: Spotify Playlist Discovery
 - Added `selected` flag to Playlist model with auto-migration.
 - API: `GET /api/v1/playlists/spotify/discover` to fetch playlists using stored Spotify OAuth token; optional `persist` to upsert.

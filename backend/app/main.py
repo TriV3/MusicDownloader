@@ -127,6 +127,8 @@ async def on_startup():
         except Exception:
             pass
 
+        # (Removed: audio feature columns auto-migration no longer needed)
+
     # Start download worker(s) unless disabled (e.g., in tests)
     import os
     if os.environ.get("DISABLE_DOWNLOAD_WORKER", "0") not in {"1", "true", "TRUE", "True"}:
@@ -189,6 +191,30 @@ app.include_router(oauth_router, prefix="/api/v1")
 app.include_router(oauth_spotify_router, prefix="/api/v1")
 app.include_router(downloads_router, prefix="/api/v1")
 app.include_router(library_router, prefix="/api/v1")
+
+# Temporary debug endpoint for diagnosing empty track list rendering
+from fastapi import Depends  # type: ignore
+from sqlalchemy import select as _select  # type: ignore
+from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore
+try:
+    from .db.session import get_session as _get_session  # type: ignore
+    from .db.models.models import Track as _Track  # type: ignore
+except Exception:  # pragma: no cover
+    from db.session import get_session as _get_session  # type: ignore
+    from db.models.models import Track as _Track  # type: ignore
+
+@app.get("/api/v1/_debug/track_count")
+async def debug_track_count(session: AsyncSession = Depends(_get_session)):
+    rows = (await session.execute(_select(_Track))).scalars().all()
+    sample = []
+    for t in rows[:3]:
+        sample.append({
+            "id": t.id,
+            "title": t.title,
+            "artists": t.artists,
+            "created_at": str(t.created_at),
+        })
+    return {"count": len(rows), "sample": sample}
 
 
 @app.get("/api")
