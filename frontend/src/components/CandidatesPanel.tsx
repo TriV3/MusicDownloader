@@ -12,35 +12,54 @@ export const CandidatesPanel: React.FC = () => {
   const [ytPreferExtended, setYtPreferExtended] = React.useState(true)
   const [ytPersist, setYtPersist] = React.useState(true)
   const [ytLoading, setYtLoading] = React.useState(false)
+  const [ytStatus, setYtStatus] = React.useState<string>('')
+  const [strict, setStrict] = React.useState(true)
   const MIN_SCORE = 0.5
   const [trackDurationMs, setTrackDurationMs] = React.useState<number | null>(null)
-  const [expanded, setExpanded] = React.useState<Set<number>>(new Set())
+  const [expanded, setExpanded] = React.useState<Set<string>>(new Set())
 
   const getDisplayScore = React.useCallback((c: Candidate) => {
     const total = c.score_breakdown?.total
     return typeof total === 'number' ? total : (typeof c.score === 'number' ? c.score : 0)
   }, [])
 
+  const getRowKey = React.useCallback((c: Candidate) => `${c.id || 0}-${c.provider}-${c.external_id}`, [])
+
   const load = React.useCallback(() => {
     if (selectedTrack == null) { setCandidates([]); return }
-    const params = new URLSearchParams({ track_id: String(selectedTrack), sort })
+    const params = new URLSearchParams({ track_id: String(selectedTrack), sort, prefer_extended: String(ytPreferExtended) })
     fetch('/api/v1/candidates/?' + params.toString())
-      .then(r => r.json())
+      .then(r => r.ok ? r.json() : [])
+      .then(async (d: Candidate[]) => {
+        return Array.isArray(d) ? d : []
+      })
       .then((d: Candidate[]) => {
+        const normalized = d.map(x => ({ ...x, id: x.id || 0 }))
         if (sort === 'score') {
-          const sorted = [...d].sort((a, b) => {
+          const sorted = [...normalized].sort((a, b) => {
             const diff = getDisplayScore(b) - getDisplayScore(a)
-            return diff !== 0 ? diff : (a.id - b.id)
+            if (diff !== 0) return diff
+            const ka = `${a.id || 0}-${a.provider}-${a.external_id}`
+            const kb = `${b.id || 0}-${b.provider}-${b.external_id}`
+            return ka.localeCompare(kb)
           })
           setCandidates(sorted)
         } else {
-          setCandidates(d)
+          setCandidates(normalized)
         }
       })
       .catch(() => {})
-  }, [selectedTrack, sort, getDisplayScore])
+  }, [selectedTrack, sort, ytPreferExtended, getDisplayScore])
 
   React.useEffect(() => { load() }, [load])
+
+  const displayed = React.useMemo(() => {
+    // No score limit when strict filter is unchecked
+    if (!strict) return candidates
+    const filtered = candidates.filter(c => c.chosen || getDisplayScore(c) >= MIN_SCORE)
+    if (filtered.length === 0 && candidates.length > 0) return candidates
+    return filtered
+  }, [candidates, strict, getDisplayScore])
 
   // Load track duration to compute signed delta
   React.useEffect(() => {
@@ -55,14 +74,24 @@ export const CandidatesPanel: React.FC = () => {
   const runYouTubeSearch = async () => {
     if (selectedTrack == null) return
     setYtLoading(true)
+    setYtStatus('')
     try {
       const params = new URLSearchParams({ prefer_extended: String(ytPreferExtended), persist: String(ytPersist) })
       const r = await fetch(`/api/v1/tracks/${selectedTrack}/youtube/search?` + params.toString())
-      await r.json().catch(() => null)
-      // Always refresh candidates after a search; if persisted, new rows appear; if not, no change
-      await load()
-      // Notify other panels if needed
-      window.dispatchEvent(new Event('candidates:changed'))
+      if (!r.ok) {
+        const msg = await r.text().catch(() => '')
+        setYtStatus(`Search failed (${r.status}). ${msg || ''}`)
+      } else {
+        await r.json().catch(() => null)
+        // Refresh candidates after a search; explicit only
+        await load()
+        // Notify other panels if needed
+        window.dispatchEvent(new Event('candidates:changed'))
+        setYtStatus(ytPersist ? 'Search saved candidates.' : 'Search completed (not persisted).')
+      }
+    } catch (e: any) {
+      console.error('YouTube search error', e)
+      setYtStatus(`Search error: ${e?.message || 'Network error'}`)
     } finally {
       setYtLoading(false)
     }
@@ -102,11 +131,15 @@ export const CandidatesPanel: React.FC = () => {
         <button disabled={selectedTrack == null} onClick={load}>Refresh</button>
         <div style={{ marginLeft: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <button disabled={selectedTrack == null || ytLoading} onClick={runYouTubeSearch}>{ytLoading ? 'Searching…' : 'YouTube Search'}</button>
+          {ytStatus && <span style={{ color: '#555' }}>{ytStatus}</span>}
           <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <input type='checkbox' checked={ytPreferExtended} onChange={e => setYtPreferExtended(e.target.checked)} /> Prefer Extended/Club Mix
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <input type='checkbox' checked={ytPersist} onChange={e => setYtPersist(e.target.checked)} /> Persist
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4 }} title='When unchecked, show all candidates (no score limit)'>
+            <input type='checkbox' checked={strict} onChange={e => setStrict(e.target.checked)} /> Strict filter (score ≥ 0.50; unchecked = no limit)
           </label>
         </div>
       </div>
@@ -126,13 +159,13 @@ export const CandidatesPanel: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {candidates
-                .filter(c => c.chosen || c.score >= MIN_SCORE)
-                .map(c => (
-                <>
-                  <tr key={c.id} style={{ background: c.chosen ? '#e6ffe6' : 'transparent' }}>
+              {displayed.map(c => {
+                const rowKey = getRowKey(c)
+                return (
+                <React.Fragment key={rowKey}>
+                  <tr style={{ background: c.chosen ? '#e6ffe6' : 'transparent' }}>
                     <td>{c.chosen ? '★' : ''}</td>
-                    <td>{renderThumbCell(c, expanded, setExpanded)}</td>
+                    <td>{renderThumbCell(c, expanded, setExpanded, rowKey)}</td>
                     <td style={{ maxWidth: 360 }} title={c.title}>
                       <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title}</div>
                       {c.score_breakdown && (
@@ -145,25 +178,25 @@ export const CandidatesPanel: React.FC = () => {
                         </div>
                       )}
                     </td>
-                    <td>{renderSourceCell(c, expanded, setExpanded)}</td>
+                    <td>{renderSourceCell(c, expanded, setExpanded, rowKey)}</td>
                     <td>{getDisplayScore(c).toFixed(3)}</td>
                     <td>{c.duration_sec != null ? formatHMS(c.duration_sec) : '-'}</td>
                     <td>{renderSignedDelta(trackDurationMs, c.duration_sec, c.duration_delta_sec)}</td>
                     <td>
-                      {!c.chosen && <button onClick={() => choose(c.id)}>Choose</button>}
+                      {!c.chosen && c.id > 0 && <button onClick={() => choose(c.id)}>Choose</button>}
                     </td>
                   </tr>
-                  {expanded.has(c.id) && c.provider === 'youtube' && (
-                    <tr>
+                  {expanded.has(rowKey) && c.provider === 'youtube' && (
+                    <tr key={`exp-${rowKey}`}>
                       <td colSpan={8}>
                         {renderYouTubeEmbed(c)}
                       </td>
                     </tr>
                   )}
-                </>
-              ))}
-              {candidates.filter(c => c.chosen || c.score >= MIN_SCORE).length === 0 && (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 8 }}>No candidates (score ≥ {MIN_SCORE})</td></tr>
+                </React.Fragment>
+              )})}
+              {candidates.length === 0 && (
+                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 8 }}>No candidates</td></tr>
               )}
             </tbody>
           </table>
@@ -211,15 +244,16 @@ function renderSignedDelta(trackDurationMs: number | null, candidateDurationSec?
 
 function renderSourceCell(
   c: Candidate,
-  expanded: Set<number>,
-  setExpanded: React.Dispatch<React.SetStateAction<Set<number>>>
+  expanded: Set<string>,
+  setExpanded: React.Dispatch<React.SetStateAction<Set<string>>>,
+  rowKey: string
 ) {
   if (c.provider === 'youtube') {
     const url = c.url || (c.external_id ? `https://www.youtube.com/watch?v=${c.external_id}` : '')
-    const isOpen = expanded.has(c.id)
+    const isOpen = expanded.has(rowKey)
     const toggle = () => setExpanded(prev => {
       const next = new Set(prev)
-      if (next.has(c.id)) next.delete(c.id); else next.add(c.id)
+      if (next.has(rowKey)) next.delete(rowKey); else next.add(rowKey)
       return next
     })
     return (
@@ -291,17 +325,18 @@ function extractYouTubeId(input: string): string | null {
 
 function renderThumbCell(
   c: Candidate,
-  expanded: Set<number>,
-  setExpanded: React.Dispatch<React.SetStateAction<Set<number>>>
+  expanded: Set<string>,
+  setExpanded: React.Dispatch<React.SetStateAction<Set<string>>>,
+  rowKey: string
 ) {
   if (c.provider !== 'youtube') return <span>-</span>
   const id = getYouTubeId(c)
   if (!id) return <span>-</span>
   const thumb = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
-  const isOpen = expanded.has(c.id)
+  const isOpen = expanded.has(rowKey)
   const toggle = () => setExpanded(prev => {
     const next = new Set(prev)
-    if (next.has(c.id)) next.delete(c.id); else next.add(c.id)
+    if (next.has(rowKey)) next.delete(rowKey); else next.add(rowKey)
     return next
   })
   return (

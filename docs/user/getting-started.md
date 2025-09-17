@@ -56,6 +56,7 @@ Connect Spotify
 Troubleshooting
 - Missing Spotify configuration: set SPOTIFY_CLIENT_ID/SECRET/REDIRECT_URI in `backend/.env`, restart the API, and retry.
 - API docs: http://localhost:8000/api/docs
+- YouTube search stuck or empty results: set `YT_DLP_BIN` in `backend/.env` to your local yt-dlp (e.g., `.venv\Scripts\yt-dlp.exe` on Windows) and optionally lower `YOUTUBE_SEARCH_TIMEOUT` (default 8). For local demos, you can set `YOUTUBE_SEARCH_FAKE=1` or keep real search and enable `YOUTUBE_SEARCH_FALLBACK_FAKE=1` to get canned results when real search fails.
 
 Track covers
 - The tracks list shows cover thumbnails when available.

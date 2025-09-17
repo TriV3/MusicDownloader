@@ -78,3 +78,27 @@ Scoring combines:
 - Small penalties when primary artist is missing from title or important tokens are unmatched
 
 Results are sorted by score desc then id asc for stability.
+
+### YouTube search behavior (variants)
+
+- The backend tries multiple query variants to improve recall:
+  - Primary artist + normalized title
+  - Normalized title + detected remixer (from title)
+  - Normalized title + non-primary artists (as potential remixers)
+  - Normalized title + "remix"
+  - If "Prefer Extended" is enabled: add "extended mix" variants
+  - Fallback: full artists + raw title
+- Scoring favors explicit Remix/Extended when preferred and avoids penalizing longer durations in that mode.
+
+### YouTube search execution, timeout, and fallbacks
+
+The YouTube candidate search uses yt-dlp. You can control its behavior with these environment variables (set in `backend/.env` or the process environment):
+
+- YT_DLP_BIN: Optional absolute path to the yt-dlp executable. Defaults to `yt-dlp` resolved from PATH.
+- YOUTUBE_SEARCH_TIMEOUT: Maximum seconds to wait for a yt-dlp search. Default: 8. When exceeded, the backend logs a warning and returns an empty list (or a fake fallback if enabled).
+- YOUTUBE_SEARCH_FAKE: When `1`, the API returns canned fake results regardless of yt-dlp. Useful for local development and tests.
+- YOUTUBE_SEARCH_FALLBACK_FAKE: When `1` and the real search yields no results (e.g., due to timeout or binary missing), the API falls back to the same fake results instead of returning an empty list.
+
+Notes
+- Timeouts and errors do not block the API; the request completes and the frontend loading indicator stops.
+- Use `YT_DLP_BIN` to point to `.venv\Scripts\yt-dlp.exe` on Windows if yt-dlp is not on PATH.

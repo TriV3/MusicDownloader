@@ -150,7 +150,7 @@ class SearchCandidateRead(SearchCandidateCreate):
         duration: float
         extended: float
         channel: float
-        penalty: float
+        penalty: float  # aggregated: tokens_penalty + keywords_penalty
         total: float
 
     score_breakdown: Optional[ScoreBreakdown] = None

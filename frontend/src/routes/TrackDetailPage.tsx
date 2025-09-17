@@ -7,14 +7,32 @@ export const TrackDetailPage: React.FC = () => {
   const { id } = useParams()
   const navigate = useNavigate()
   const tid = Number(id)
+  const [track, setTrack] = React.useState<any>(null)
 
   React.useEffect(() => {
     if (!id) navigate('/tracks')
   }, [id, navigate])
 
+  React.useEffect(() => {
+    if (!id) { setTrack(null); return }
+    let aborted = false
+    fetch(`/api/v1/tracks/${id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (!aborted) setTrack(data) })
+      .catch(() => { if (!aborted) setTrack(null) })
+    return () => { aborted = true }
+  }, [id])
+
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <h2>Track #{id}</h2>
+      <h2>
+        Track #{id}
+        {track && (
+          <span style={{ fontWeight: 'normal', color: '#555', marginLeft: 8 }}>
+            — {track.artists} — {track.title}
+          </span>
+        )}
+      </h2>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <NavLink to="overview">Overview</NavLink>
         <NavLink to="identities">Identities</NavLink>

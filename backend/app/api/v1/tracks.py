@@ -313,7 +313,7 @@ async def youtube_search_track(
                         duration=comps[1],
                         extended=comps[2],
                         channel=comps[3],
-                        penalty=comps[4],
+                        penalty=comps[4] + comps[5],
                         total=round(sum(comps), 6),
                     ),
                 )

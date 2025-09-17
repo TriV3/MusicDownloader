@@ -28,6 +28,31 @@
 				"$pytest"
 			],
 			"group": "test"
+		},
+		{
+			"label": "Run backend tests (.venv)",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				".venv\\Scripts\\python -m pytest -q backend/tests/test_youtube_search_timeout.py backend/tests/test_youtube_search.py backend/tests/test_youtube_scoring_channel.py"
+			],
+			"group": "test"
+		},
+		{
+			"label": "Build frontend (vite)",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"cd frontend && npm ci --no-audit --silent && npx vite build"
+			],
+			"problemMatcher": [
+				"$eslint-stylish"
+			],
+			"group": "build"
 		}
 	]
 }

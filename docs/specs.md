@@ -328,6 +328,20 @@ Implementation (completed):
 1. Scoring model ranks official or best-fit results higher in benchmarks
 2. Thresholds reduce false positives in tests
 
+Implementation (completed):
+- Enhanced `utils.youtube_search.get_score_components` to include:
+	- Fuzzy text match (token overlap),
+	- Duration proximity with extended-mix-aware tolerance and negative clamp,
+	- Channel reputation bonus (official/vevo/topic or artist-name match),
+	- Extended/Club Mix bonus (when preferred),
+	- Penalties for missing tokens and undesirable keywords (lyrics/live/cover/karaoke; small for audio-only on non-official channels).
+- API returns a `score_breakdown` in candidate responses with an aggregated `penalty` (tokens + keywords) and `total` used by the UI.
+- Frontend Candidates panel:
+	- Shows badge chips for Text/Duration/Channel/Extended/Penalty,
+	- Adds a Strict filter toggle (score ≥ 0.50 by default; can lower to 0.30 to review borderline results),
+	- Sorting by Score remains default with stable ordering.
+- Tests: added keyword penalty tests; existing channel bonus tests still pass.
+
 ### Step 4.2: Duplicate Prevention
 - Check existing LibraryFile and prior successful downloads before enqueueing
 

@@ -9,6 +9,12 @@ Versioning scheme:
 Unreleased
 - Planning and work in progress.
 
+0.4.1 — Phase 4: Candidate Scoring Heuristics (Step 4.1)
+- Backend: Enhanced YouTube scoring with fuzzy token match, extended-aware duration proximity, official channel bonuses, and keyword penalties (lyrics/live/cover/karaoke; mild for audio-only).
+- API: Candidate responses include a `score_breakdown` (Text/Duration/Channel/Extended/Penalty, Total).
+- Frontend: Candidates panel shows badges for breakdown and a Strict filter toggle (0.50/0.30) to reduce false positives by default.
+- Tests: Added keyword penalty tests; channel bonus tests still pass.
+
 0.3.4 — Phase 3: Spotify UI (Step 3.4)
 - Frontend Playlists page implements Spotify connect (PKCE OAuth), discovery, selection, and sync triggers.
 - Silent token refresh on load; shows connected status.
