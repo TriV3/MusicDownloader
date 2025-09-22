@@ -171,6 +171,24 @@ class SearchCandidate(Base):
     )
 
 
+class SearchAttempt(Base):
+    __tablename__ = "search_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id"), nullable=False)
+    provider: Mapped[SearchProvider] = mapped_column(SAEnum(SearchProvider), nullable=False)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    results_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prefer_extended: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    track: Mapped[Track] = relationship(backref="search_attempts")
+
+    __table_args__ = (
+        Index("ix_search_attempt_track", "track_id"),
+        Index("ix_search_attempt_time", "attempted_at"),
+    )
+
 class Download(Base):
     __tablename__ = "downloads"
 

@@ -1,10 +1,22 @@
 from fastapi import FastAPI
 import logging
+import os
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
 from pathlib import Path
 from typing import List, Dict, Any
+from logging.config import dictConfig
+
+# Apply logging configuration as early as possible (module import time)
+try:
+    from .core.logging_config import get_uvicorn_log_config  # type: ignore
+    _lvl_name = os.environ.get("APP_LOG_LEVEL", "INFO").upper()
+    _lvl = getattr(logging, _lvl_name, logging.INFO)
+    dictConfig(get_uvicorn_log_config(_lvl))
+except Exception:
+    # Fallback to a simple timestamped format
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
 
 # Support both execution modes:
 # - "uvicorn backend.app.main:app" (package-relative imports)
@@ -79,19 +91,25 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def on_startup():
-    # Ensure a basic logging configuration exists so our module logs are visible
+    # Ensure a logging configuration with timestamps exists so module and uvicorn logs are visible
     try:
         level_name = os.environ.get("APP_LOG_LEVEL", "INFO").upper()
         level = getattr(logging, level_name, logging.INFO)
-        root = logging.getLogger()
-        if not root.handlers:
-            logging.basicConfig(
-                level=level,
-                format="[%(asctime)s] %(levelname)s - %(name)s: %(message)s",
-            )
+        try:
+            # Prefer our centralized dictConfig if available
+            from .core.logging_config import get_uvicorn_log_config  # type: ignore
+        except Exception:
+            get_uvicorn_log_config = None  # type: ignore
+
+        if get_uvicorn_log_config:
+            dictConfig(get_uvicorn_log_config(level))
         else:
-            root.setLevel(level)
-        # Make sure our package logs propagate and are at least at the configured level
+            # Fallback to basicConfig with time
+            logging.basicConfig(level=level, format="%(asctime)s %(levelname)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
+            logging.getLogger("uvicorn").setLevel(level)
+            logging.getLogger("uvicorn.error").setLevel(level)
+            logging.getLogger("uvicorn.access").setLevel(level)
+        # Ensure our app loggers are at the configured level
         logging.getLogger("backend").setLevel(level)
         logging.getLogger("backend.app").setLevel(level)
     except Exception:
@@ -218,7 +236,6 @@ async def on_startup():
         # (Removed: audio feature columns auto-migration no longer needed)
 
     # Start download worker(s) unless disabled (e.g., in tests)
-    import os
     if os.environ.get("DISABLE_DOWNLOAD_WORKER", "0") not in {"1", "true", "TRUE", "True"}:
         # Allow configuring concurrency and simulation via env; default to real downloads (simulate_seconds=0)
         from .worker import downloads_worker as dw  # lazy import to set global

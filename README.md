@@ -33,6 +33,10 @@ API root: http://localhost:8000/
 Health:   http://localhost:8000/api/v1/health
 Info:     http://localhost:8000/api/v1/info
 
+### Logging
+- Logs now include timestamps (HH:MM:SS) for both application and uvicorn access logs.
+- Control verbosity with `APP_LOG_LEVEL` (e.g., `DEBUG`, `INFO`).
+
 ### Frontend
 ```
 cd d:\Dev\Projects\music_downloader\frontend

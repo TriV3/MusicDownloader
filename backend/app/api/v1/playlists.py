@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, and_, delete, func, distinct, case
+from sqlalchemy import select, and_, delete, func, distinct, case, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
@@ -10,12 +10,23 @@ try:
     from ...core.config import settings  # type: ignore
     from ...utils.normalize import normalize_track  # type: ignore
     from ...db.models.models import LibraryFile  # type: ignore
+    from ...db.models.models import SearchCandidate, SearchProvider  # type: ignore
+    from ...db.models.models import DownloadProvider  # type: ignore
+    from ...utils.youtube_search import search_youtube  # type: ignore
+    from ...api.v1.downloads import enqueue_download  # type: ignore
+    from ...utils.images import youtube_thumbnail_url  # type: ignore
 except Exception:  # pragma: no cover
     from db.session import get_session  # type: ignore
     from db.models.models import Playlist, SourceProvider, SourceAccount, OAuthToken, Track, TrackIdentity, PlaylistTrack  # type: ignore
     from schemas.models import PlaylistCreate, PlaylistRead, TrackRead  # type: ignore
     from core.config import settings  # type: ignore
     from utils.normalize import normalize_track  # type: ignore
+    from db.models.models import LibraryFile  # type: ignore
+    from db.models.models import SearchCandidate, SearchProvider  # type: ignore
+    from db.models.models import DownloadProvider  # type: ignore
+    from utils.youtube_search import search_youtube  # type: ignore
+    from api.v1.downloads import enqueue_download  # type: ignore
+    from utils.images import youtube_thumbnail_url  # type: ignore
 
 import os
 import httpx
@@ -100,17 +111,33 @@ async def playlists_stats(
     stmt = stmt.group_by(Playlist.id).order_by(Playlist.name.asc())
     res = await session.execute(stmt)
     items = []
+    # Preload counts of searches with zero results per track
+    try:
+        from ...db.models.models import SearchAttempt as _SA  # type: ignore
+    except Exception:  # pragma: no cover
+        from db.models.models import SearchAttempt as _SA  # type: ignore
+    nf_stmt = (
+        select(PlaylistTrack.playlist_id, func.count(_SA.id))
+        .select_from(PlaylistTrack)
+        .join(_SA, _SA.track_id == PlaylistTrack.track_id)
+        .where(_SA.results_count == 0)
+        .group_by(PlaylistTrack.playlist_id)
+    )
+    nf_map: Dict[int, int] = {pid: cnt for pid, cnt in (await session.execute(nf_stmt)).all()}
+
     for row in res.all():
         row = row._asdict()
         total = int(row.get("total_tracks") or 0)
         downloaded = int(row.get("downloaded_tracks") or 0)
+        pid = row.get("playlist_id")
         items.append({
-            "playlist_id": row.get("playlist_id"),
+            "playlist_id": pid,
             "name": row.get("name"),
             "provider": (row.get("provider") or "").value if hasattr(row.get("provider"), "value") else row.get("provider"),
             "total_tracks": total,
             "downloaded_tracks": downloaded,
             "not_downloaded_tracks": max(0, total - downloaded),
+            "searched_not_found": int(nf_map.get(pid, 0)) if pid is not None else 0,
         })
 
     if include_other:
@@ -135,6 +162,7 @@ async def playlists_stats(
             "total_tracks": int(total_o or 0),
             "downloaded_tracks": int(downloaded_o or 0),
             "not_downloaded_tracks": max(0, int(total_o or 0) - int(downloaded_o or 0)),
+            "searched_not_found": 0,
         })
 
     return items
@@ -151,6 +179,167 @@ async def get_playlist(playlist_id: int, session: AsyncSession = Depends(get_ses
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
     return playlist
+
+
+@router.post("/{playlist_id}/auto_download")
+async def auto_download_playlist(
+    playlist_id: int,
+    session: AsyncSession = Depends(get_session),
+    prefer_extended: bool = Query(False, description="Prefer Extended/Club/Original Mix when searching"),
+    dry_run: bool = Query(False, description="If true, do not create candidates or downloads; return what would be enqueued"),
+):
+    """Search best YouTube candidate per track in playlist and enqueue downloads.
+
+    Behavior:
+    - Skips tracks that already have a LibraryFile.exists on disk (duplicate prevention).
+    - If a chosen candidate exists, enqueues download for it.
+    - Otherwise, performs YouTube search, persists the top scored result as a candidate (chosen), and enqueues it.
+    - Honors server-side filtering (min score, drop negatives) applied in search_youtube.
+    - Returns a summary of actions.
+    """
+    pl = await session.get(Playlist, playlist_id)
+    if not pl:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    # Fetch tracks in playlist order
+    result = await session.execute(
+        select(PlaylistTrack, Track)
+        .join(Track, Track.id == PlaylistTrack.track_id)
+        .where(PlaylistTrack.playlist_id == playlist_id)
+        .order_by(PlaylistTrack.position.asc())
+    )
+    rows = result.all()
+
+    total = len(rows)
+    skipped_already = 0
+    enqueued = 0
+    candidates_created = 0
+    not_found = 0
+    chosen_used = 0
+
+    for pt, tr in rows:
+        # Skip if a library file exists (best-effort check)
+        has_file = False
+        try:
+            lf_q = select(LibraryFile).where(LibraryFile.track_id == tr.id, LibraryFile.exists == True)  # noqa: E712
+            lf = (await session.execute(lf_q)).scalars().first()
+            if lf and lf.filepath:
+                import os as _os
+                if _os.path.exists(lf.filepath):
+                    has_file = True
+        except Exception:
+            has_file = False
+        if has_file:
+            skipped_already += 1
+            continue
+
+        # Use chosen candidate if present
+        chosen = (await session.execute(
+            select(SearchCandidate)
+            .where(SearchCandidate.track_id == tr.id, SearchCandidate.chosen.is_(True))
+            .order_by(desc(SearchCandidate.score))
+        )).scalars().first()
+
+        cand_id: Optional[int] = None
+        if chosen is not None:
+            cand_id = chosen.id
+            chosen_used += 1
+        else:
+            # Perform YouTube search and pick top result
+            scored = search_youtube(tr.artists, tr.title, tr.duration_ms, prefer_extended=prefer_extended)
+            top = scored[0] if scored else None
+            # Record search attempt result count
+            try:
+                from ...db.models.models import SearchAttempt, SearchProvider as _SP  # type: ignore
+            except Exception:  # pragma: no cover
+                from db.models.models import SearchAttempt, SearchProvider as _SP  # type: ignore
+            try:
+                att = SearchAttempt(
+                    track_id=tr.id,
+                    provider=_SP.youtube,
+                    results_count=len(scored or []),
+                    prefer_extended=prefer_extended,
+                )
+                session.add(att)
+                await session.flush()
+            except Exception:
+                pass
+            if not top:
+                not_found += 1
+                continue
+            if not dry_run:
+                # Persist as candidate (upsert) and mark chosen
+                # Clear any previous chosen flags just in case
+                prev = (await session.execute(select(SearchCandidate).where(SearchCandidate.track_id == tr.id))).scalars().all()
+                for c in prev:
+                    c.chosen = False
+                existing = (await session.execute(
+                    select(SearchCandidate).where(
+                        SearchCandidate.track_id == tr.id,
+                        SearchCandidate.provider == SearchProvider.youtube,
+                        SearchCandidate.external_id == top.external_id,
+                    )
+                )).scalars().first()
+                if existing:
+                    existing.url = top.url
+                    existing.title = top.title
+                    existing.channel = top.channel
+                    existing.duration_sec = top.duration_sec
+                    existing.score = top.score
+                    existing.chosen = True
+                    sc = existing
+                else:
+                    sc = SearchCandidate(
+                        track_id=tr.id,
+                        provider=SearchProvider.youtube,
+                        external_id=top.external_id,
+                        url=top.url,
+                        title=top.title,
+                        channel=top.channel,
+                        duration_sec=top.duration_sec,
+                        score=top.score,
+                        chosen=True,
+                    )
+                    session.add(sc)
+                    candidates_created += 1
+                await session.flush()
+                cand_id = sc.id
+                # Set cover if missing from YouTube thumbnail
+                if not tr.cover_url:
+                    thumb = youtube_thumbnail_url(top.external_id) or youtube_thumbnail_url(top.url)
+                    if thumb:
+                        tr.cover_url = thumb
+
+        if dry_run:
+            # Skip actual enqueue
+            continue
+
+        # Enqueue download (reuses duplicate prevention inside)
+        try:
+            dl = await enqueue_download(
+                track_id=tr.id,
+                candidate_id=cand_id,
+                provider=DownloadProvider.yt_dlp,
+                force=False,
+                session=session,
+            )
+            # Count only when queued or marked already/done
+            if getattr(dl, "status", None) is not None:
+                enqueued += 1
+        except HTTPException as e:
+            # Skip on errors like 404/validation; continue with next track
+            continue
+
+    return {
+        "playlist_id": playlist_id,
+        "total_tracks": total,
+        "skipped_already": skipped_already,
+        "chosen_used": chosen_used,
+        "candidates_created": candidates_created,
+        "enqueued": enqueued,
+        "not_found": not_found,
+        "dry_run": dry_run,
+    }
 
 
 async def _get_valid_token(session: AsyncSession, account_id: int) -> str:

@@ -25,6 +25,8 @@ Current endpoints (v1)
 - Playlists:
   - GET `/api/v1/playlists/`
   - POST `/api/v1/playlists/`
+  - GET `/api/v1/playlists/stats?selected_only=true&provider=&account_id=&include_other=true` — Aggregate counts per playlist (plus 'Other')
+  - POST `/api/v1/playlists/{playlist_id}/auto_download?prefer_extended=&dry_run=` — Auto-search and enqueue downloads for all tracks
 - Tracks:
   - GET `/api/v1/tracks/`
   - POST `/api/v1/tracks/`
@@ -68,6 +70,12 @@ Versioning
 Testing
 - Tests use in-memory SQLite via `DATABASE_URL` and `httpx.AsyncClient` mounted to the FastAPI app.
 - See `backend/tests` for examples.
+
+## Operational notes
+
+- CORS is configured via `CORS_ORIGINS` (comma-separated).
+- Log level controlled by `APP_LOG_LEVEL` (default INFO).
+- Logs include timestamps (HH:MM:SS) for application and uvicorn access logs. When using `run_api.py`, a logging dictConfig is supplied so uvicorn also prints timestamps.
 
 ## YouTube search and scoring
 

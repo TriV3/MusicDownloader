@@ -1,0 +1,40 @@
+/* Layout specific styles */
+.app-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-secondary);
+}
+
+.main-content {
+  flex: 1;
+  padding: var(--spacing-xl) 0;
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+}
+
+.content-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 var(--spacing-lg);
+  animation: fadeIn 0.5s ease-out;
+}
+
+/* Enhanced content styling */
+.content-container > * {
+  margin-bottom: var(--spacing-lg);
+}
+
+.content-container > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .main-content {
+    padding: var(--spacing-lg) 0;
+  }
+  
+  .content-container {
+    padding: 0 var(--spacing-md);
+  }
+}

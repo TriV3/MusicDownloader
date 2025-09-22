@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import select, and_, desc
+from sqlalchemy import select, and_, desc, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:  # package mode
@@ -282,3 +282,37 @@ async def wait_idle(timeout: float = 3.0, track_id: Optional[int] = None, stop_a
         tasks = len(getattr(dw.download_queue, "_tasks", []) or [])
         return {"ok": True, "qsize": qsize, "tasks": tasks}
     return {"ok": False}
+
+
+@router.post("/stop_all")
+async def stop_all_downloads(session: AsyncSession = Depends(get_session)):
+    """Stop the background worker and mark queued downloads as skipped.
+
+    Running downloads will be interrupted best-effort by stopping the worker tasks.
+    Queued downloads are marked as skipped immediately.
+    """
+    # Mark queued downloads as skipped
+    from datetime import datetime as _dt
+    res = await session.execute(
+        update(Download)
+        .where(Download.status == DownloadStatus.queued)
+        .values(status=DownloadStatus.skipped, finished_at=_dt.utcnow())
+        .execution_options(synchronize_session=False)
+    )
+    queued_skipped = res.rowcount or 0
+    await session.commit()
+
+    # Stop worker if running
+    worker_stopped = False
+    try:  # pragma: no cover
+        from ...worker import downloads_worker as dw  # type: ignore
+    except Exception:  # pragma: no cover
+        from worker import downloads_worker as dw  # type: ignore
+    try:
+        if dw.download_queue:
+            await dw.download_queue.stop()
+            dw.download_queue = None
+            worker_stopped = True
+    except Exception:
+        worker_stopped = False
+    return {"ok": True, "queued_skipped": int(queued_skipped), "worker_stopped": worker_stopped}

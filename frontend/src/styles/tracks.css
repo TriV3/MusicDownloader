@@ -1,0 +1,398 @@
+/* Tracks page styles */
+.tracks-page {
+  padding: var(--spacing-lg);
+}
+
+.tracks-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-xl);
+}
+
+.tracks-title {
+  color: var(--text-primary);
+  font-size: 1.875rem;
+  font-weight: 700;
+  margin: 0;
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Controls section */
+.tracks-controls {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+  flex-wrap: wrap;
+  padding: var(--spacing-md);
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: var(--spacing-lg);
+}
+
+.tracks-controls select,
+.tracks-controls button {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  transition: all 0.2s ease-in-out;
+}
+
+.tracks-controls select {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.tracks-controls select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.tracks-controls button {
+  background: var(--primary-color);
+  color: white;
+  border: 1px solid var(--primary-color);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tracks-controls button:hover:not(:disabled) {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.tracks-controls button:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-color: var(--border-color);
+  cursor: not-allowed;
+}
+
+/* Compact table styles for tracks */
+.tracks-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  font-size: 0.8125rem;
+}
+
+.tracks-table thead th {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-weight: 600;
+  text-align: left;
+  padding: var(--spacing-sm);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+}
+
+.tracks-table tbody tr {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease-in-out;
+  height: 56px; /* Compact row height */
+}
+
+.tracks-table tbody tr:hover {
+  background: var(--bg-secondary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.tracks-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.tracks-table tbody td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  vertical-align: middle;
+  line-height: 1.3;
+}
+
+/* Specific column styles */
+.tracks-table .col-id {
+  width: 60px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.tracks-table .col-downloaded {
+  width: 40px;
+  text-align: center;
+  font-size: 1rem;
+  color: var(--success-color);
+}
+
+.tracks-table .col-cover {
+  width: 56px;
+  padding: var(--spacing-xs);
+}
+
+.tracks-table .col-cover img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.tracks-table .col-cover .no-image {
+  width: 40px;
+  height: 40px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  text-align: center;
+  line-height: 1.1;
+}
+
+.tracks-table .col-artists {
+  font-weight: 500;
+  color: var(--text-primary);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracks-table .col-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracks-table .col-playlists {
+  max-width: 180px;
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.tracks-table .playlist-badge {
+  display: inline-block;
+  margin: 1px 2px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.tracks-table .playlist-badge:hover {
+  background: var(--primary-color);
+  color: white;
+}
+
+.tracks-table .col-genre,
+.tracks-table .col-bpm,
+.tracks-table .col-duration {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.tracks-table .col-dates {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  min-width: 120px;
+}
+
+.tracks-table .col-actions {
+  width: 85px;
+  text-align: center;
+}
+
+.tracks-table .col-actions a,
+.tracks-table .col-actions button {
+  font-size: 0.625rem;
+  padding: 1px 4px;
+  margin: 0;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transition: all 0.2s ease-in-out;
+  white-space: nowrap;
+  display: inline-block;
+  min-width: 32px;
+}
+
+.tracks-table .col-actions a {
+  background: var(--bg-secondary);
+  color: var(--primary-color);
+  border: 1px solid var(--border-color);
+}
+
+.tracks-table .col-actions a:hover {
+  background: var(--primary-color);
+  color: white;
+}
+
+.tracks-table .col-actions button {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error-color);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  cursor: pointer;
+}
+
+.tracks-table .col-actions button:hover {
+  background: var(--error-color);
+  color: white;
+}
+
+/* Filter inputs in header */
+.tracks-table thead input,
+.tracks-table thead select {
+  width: 100%;
+  min-width: 60px;
+  max-width: 120px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.tracks-table thead input:focus,
+.tracks-table thead select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.tracks-table thead .filter-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tracks-table thead .filter-dates input {
+  width: 130px;
+  font-size: 0.625rem;
+}
+
+.tracks-table thead .reset-button {
+  font-size: 0.625rem;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.tracks-table thead .reset-button:hover {
+  background: var(--primary-color);
+  color: white;
+}
+
+/* Empty state and stats */
+.tracks-empty {
+  text-align: center;
+  padding: var(--spacing-2xl);
+  color: var(--text-muted);
+}
+
+.tracks-empty .debug-info {
+  color: var(--error-color);
+  margin: var(--spacing-sm) 0;
+  font-size: 0.875rem;
+}
+
+.tracks-stats {
+  margin-top: var(--spacing-md);
+  font-size: 0.75rem;
+  display: flex;
+  gap: var(--spacing-lg);
+  flex-wrap: wrap;
+  color: var(--text-muted);
+}
+
+.tracks-stats .mismatch {
+  color: var(--error-color);
+  font-weight: 500;
+}
+
+/* Sort buttons */
+.tracks-table .sort-button {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 2px;
+  font-size: 0.75rem;
+  border-radius: var(--radius-sm);
+}
+
+.tracks-table .sort-button:hover {
+  background: var(--bg-tertiary);
+}
+
+.tracks-table .sort-button.active {
+  background: var(--primary-color);
+  color: white;
+}
+
+/* Responsive design */
+@media (max-width: 1200px) {
+  .tracks-table .col-playlists,
+  .tracks-table .col-genre,
+  .tracks-table .col-bpm {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .tracks-table {
+    font-size: 0.75rem;
+  }
+  
+  .tracks-table tbody tr {
+    height: 48px;
+  }
+  
+  .tracks-table .col-cover img,
+  .tracks-table .col-cover .no-image {
+    width: 32px;
+    height: 32px;
+  }
+  
+  .tracks-table .col-artists,
+  .tracks-table .col-title {
+    max-width: 120px;
+  }
+  
+  .tracks-table .col-dates {
+    display: none;
+  }
+  
+  .tracks-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

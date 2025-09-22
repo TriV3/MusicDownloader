@@ -217,10 +217,9 @@ export const TrackManager: React.FC = () => {
   }
 
   return (
-    <section style={{ border: '1px solid #ddd', padding: 16, borderRadius: 8 }}>
-      <h2>Track Manager</h2>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <section>
+      <div className="tracks-controls">
+        <div>
           <label>Playlist:</label>
           <select value={selectedPlaylistId} onChange={e => setSelectedPlaylistId(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
             <option value='all'>All</option>
@@ -229,15 +228,15 @@ export const TrackManager: React.FC = () => {
         </div>
         <input placeholder='Artists' value={rawArtists} onChange={e => setRawArtists(e.target.value)} style={{ flex: 1 }} />
         <input placeholder='Title' value={rawTitle} onChange={e => setRawTitle(e.target.value)} style={{ flex: 1 }} />
-    <button disabled={!rawArtists || !rawTitle || loading} onClick={create}>Create</button>
-    <button onClick={() => { loadTracks(); loadLibraryFlags() }} disabled={reloading}>{reloading ? 'Refreshing…' : 'Refresh'}</button>
+        <button disabled={!rawArtists || !rawTitle || loading} onClick={create}>Create</button>
+        <button onClick={() => { loadTracks(); loadLibraryFlags() }} disabled={reloading}>{reloading ? 'Refreshing…' : 'Refresh'}</button>
       </div>
       {preview && (
-        <div style={{ marginBottom: 12, fontSize: 13, fontFamily: 'ui-monospace, monospace', background: '#f7f7f7', padding: 8, borderRadius: 4 }}>
+        <div style={{ marginBottom: 12, fontSize: 13, fontFamily: 'var(--font-mono)', background: 'var(--bg-secondary)', padding: 8, borderRadius: 'var(--radius-sm)' }}>
           <strong>Preview:</strong> {preview.normalized_artists} – {preview.normalized_title}
         </div>
       )}
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table className="tracks-table">
         <thead>
           <tr style={{ textAlign: 'left' }}>
             {selectedPlaylistId !== 'all' && <th>Pos</th>}
@@ -251,40 +250,45 @@ export const TrackManager: React.FC = () => {
             <th>Genre</th>
             <th>BPM</th>
             <th>Duration</th>
-            <th style={{ cursor: 'pointer' }} onClick={() => setCreatedAsc(p => p === null ? false : (p ? false : true))} title='Click to toggle sort by created date'>
-              Created {createdAsc === null ? '' : createdAsc ? '▲' : '▼'}
+            <th>
+              <button 
+                className={`sort-button ${createdAsc !== null ? 'active' : ''}`}
+                onClick={() => setCreatedAsc(p => p === null ? false : (p ? false : true))} 
+                title='Click to toggle sort by created date'
+              >
+                Created {createdAsc === null ? '' : createdAsc ? '▲' : '▼'}
+              </button>
             </th>
             <th>Updated</th>
             <th>Actions</th>
           </tr>
           {/* Filter row */}
-          <tr style={{ fontSize: 11, background: '#fafafa' }}>
+          <tr>
             {selectedPlaylistId !== 'all' && <th />}
-            <th><input value={filterId} onChange={e => setFilterId(e.target.value)} placeholder='ID' style={{ width: 60 }} /></th>
+            <th><input value={filterId} onChange={e => setFilterId(e.target.value)} placeholder='ID' /></th>
             <th>
-              <select value={filterDownloaded} onChange={e => setFilterDownloaded(e.target.value as any)} style={{ width: 70 }}>
-                <option value='all'>DL: * </option>
-                <option value='yes'>Yes</option>
-                <option value='no'>No</option>
+              <select value={filterDownloaded} onChange={e => setFilterDownloaded(e.target.value as any)}>
+                <option value='all'>All</option>
+                <option value='yes'>Downloaded</option>
+                <option value='no'>Not downloaded</option>
               </select>
             </th>
             <th />
-            <th><input value={filterArtists} onChange={e => setFilterArtists(e.target.value)} placeholder='Artists filter' style={{ width: 140 }} /></th>
-            <th><input value={filterTitle} onChange={e => setFilterTitle(e.target.value)} placeholder='Title filter' style={{ width: 140 }} /></th>
-            <th><input value={filterPlaylistName} onChange={e => setFilterPlaylistName(e.target.value)} placeholder='Playlist name' style={{ width: 120 }} /></th>
-            {/* Removed audio feature filter inputs */}
-            <th><input value={filterGenre} onChange={e => setFilterGenre(e.target.value)} placeholder='Genre' style={{ width: 80 }} /></th>
+            <th><input value={filterArtists} onChange={e => setFilterArtists(e.target.value)} placeholder='Artists' /></th>
+            <th><input value={filterTitle} onChange={e => setFilterTitle(e.target.value)} placeholder='Title' /></th>
+            <th><input value={filterPlaylistName} onChange={e => setFilterPlaylistName(e.target.value)} placeholder='Playlist' /></th>
+            <th><input value={filterGenre} onChange={e => setFilterGenre(e.target.value)} placeholder='Genre' /></th>
             <th />
             <th />
             <th>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <input type='date' value={filterCreatedFrom} onChange={e => setFilterCreatedFrom(e.target.value)} style={{ width: 130 }} />
-                <input type='date' value={filterCreatedTo} onChange={e => setFilterCreatedTo(e.target.value)} style={{ width: 130 }} />
+              <div className="filter-dates">
+                <input type='date' value={filterCreatedFrom} onChange={e => setFilterCreatedFrom(e.target.value)} />
+                <input type='date' value={filterCreatedTo} onChange={e => setFilterCreatedTo(e.target.value)} />
               </div>
             </th>
             <th />
             <th>
-              <button style={{ fontSize: 10 }} onClick={() => {
+              <button className="reset-button" onClick={() => {
                 setFilterId(''); setFilterArtists(''); setFilterTitle(''); setFilterGenre(''); setFilterPlaylistName('');
                 setFilterDownloaded('all');
                 setFilterCreatedFrom(''); setFilterCreatedTo('');
@@ -349,24 +353,24 @@ export const TrackManager: React.FC = () => {
             const entry = selectedPlaylistId === 'all' ? null : entriesByPlaylist.find(e => e.track.id === t.id)
             return (
             <tr key={t.id}>
-              {selectedPlaylistId !== 'all' && <td>{entry?.position ?? (idx + 1)}</td>}
-              <td>{t.id}</td>
-              <td title={downloadedIds.has(t.id) ? 'Downloaded' : 'Not downloaded'}>
+              {selectedPlaylistId !== 'all' && <td className="col-id">{entry?.position ?? (idx + 1)}</td>}
+              <td className="col-id">{t.id}</td>
+              <td className="col-downloaded" title={downloadedIds.has(t.id) ? 'Downloaded' : 'Not downloaded'}>
                 {downloadedIds.has(t.id) ? '✔' : ''}
               </td>
-              <td>
+              <td className="col-cover">
                 {t.cover_url ? (
-                  <img src={t.cover_url} alt="cover" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4 }} />
+                  <img src={t.cover_url} alt="cover" />
                 ) : (
-                  <div style={{ width: 48, height: 48, background: '#eee', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: 10 }}>No image</div>
+                  <div className="no-image">No image</div>
                 )}
               </td>
-              <td>{t.artists}</td>
-              <td>{t.title}</td>
-              <td style={{ fontSize: 11, lineHeight: 1.2 }}>
+              <td className="col-artists">{t.artists}</td>
+              <td className="col-title">{t.title}</td>
+              <td className="col-playlists">
                 {Array.isArray(memberships[t.id]) && memberships[t.id].length > 0 ? (
                   memberships[t.id].map(pl => (
-                    <span key={`${t.id}-${pl.playlist_id}`} style={{ display: 'inline-block', marginRight: 4, background: '#f0f0f0', padding: '2px 4px', borderRadius: 4 }}>
+                    <span key={`${t.id}-${pl.playlist_id}`} className="playlist-badge">
                       {pl.playlist_name}{pl.position != null ? `#${pl.position}` : ''}
                     </span>
                   ))
@@ -374,13 +378,12 @@ export const TrackManager: React.FC = () => {
                   <span style={{ opacity: 0.4 }}>—</span>
                 )}
               </td>
-              {/* Removed tempo/energy/danceability cells */}
-              <td>{t.genre ?? '-'}</td>
-              <td>{t.bpm ?? '-'}</td>
-              <td>{t.duration_ms != null ? formatDuration(t.duration_ms) : '-'}</td>
-              <td>{formatDate(t.created_at)}</td>
-              <td>{formatDate(t.updated_at)}</td>
-              <td style={{ display: 'flex', gap: 8 }}>
+              <td className="col-genre">{t.genre ?? '-'}</td>
+              <td className="col-bpm">{t.bpm ?? '-'}</td>
+              <td className="col-duration">{t.duration_ms != null ? formatDuration(t.duration_ms) : '-'}</td>
+              <td className="col-dates">{formatDate(t.created_at)}</td>
+              <td className="col-dates">{formatDate(t.updated_at)}</td>
+              <td className="col-actions">
                 <Link to={`/tracks/${t.id}`}>View</Link>
                 <button onClick={() => remove(t.id)}>Delete</button>
               </td>
@@ -389,14 +392,14 @@ export const TrackManager: React.FC = () => {
           })()}
           {tracks.length === 0 && !lastNonEmptyRef.current && (
             <tr>
-              <td colSpan={16} style={{ textAlign: 'center', padding: 12, fontSize: 13, color: '#555' }}>
-                <div style={{ marginBottom: 4 }}>No tracks to display.</div>
+              <td colSpan={16} className="tracks-empty">
+                <div>No tracks to display.</div>
                 {lastFetchedCount > 0 && (
-                  <div style={{ color: '#a00', marginBottom: 4 }}>
+                  <div className="debug-info">
                     Debug: last fetch returned {lastFetchedCount} items but none are currently rendered.
                   </div>
                 )}
-                <div style={{ opacity: 0.8 }}>
+                <div>
                   Selected playlist: <strong>{selectedPlaylistId === 'all' ? 'All' : selectedPlaylistId}</strong>. Try clicking Refresh. Check browser console for any errors after the fetch log lines.
                 </div>
               </td>
@@ -404,10 +407,10 @@ export const TrackManager: React.FC = () => {
           )}
         </tbody>
       </table>
-      <div style={{ marginTop: 8, fontSize: 12, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+      <div className="tracks-stats">
         <span>Showing: {tracks.length} track(s){selectedPlaylistId !== 'all' ? ` (playlist filter ${selectedPlaylistId})` : ''}</span>
         {lastFetchedCount !== tracks.length && (
-          <span style={{ color: '#a00' }}>Mismatch: fetched {lastFetchedCount} vs rendered {tracks.length}</span>
+          <span className="mismatch">Mismatch: fetched {lastFetchedCount} vs rendered {tracks.length}</span>
         )}
       </div>
     </section>

@@ -1,4 +1,5 @@
 import React from 'react'
+import '../styles/playlists.css'
 
 // Minimal UI to discover and select Spotify playlists
 // Assumptions: one Spotify SourceAccount exists (or user provides account id)
@@ -131,27 +132,39 @@ const PlaylistsPage: React.FC = () => {
   }
 
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
-      <h2>Playlists</h2>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+    <div className="playlists-page">
+      <div className="playlists-header">
+        <h2 className="playlists-title">Playlists</h2>
+      </div>
+      
+      <div className="playlists-controls">
         {connected ? (
-          <span style={{ color: 'green' }}>Connected to Spotify</span>
+          <span className="playlists-status connected">Connected to Spotify</span>
         ) : (
-          <button onClick={startAuth} disabled={!accountId || busyAuth}>{busyAuth ? 'Opening Spotify…' : 'Connect to Spotify'}</button>
+          <button onClick={startAuth} disabled={!accountId || busyAuth}>
+            {busyAuth ? 'Opening Spotify…' : 'Connect to Spotify'}
+          </button>
         )}
         <label>
-          <input type='checkbox' checked={persist} onChange={e => setPersist(e.target.checked)} /> Persist
+          <input type='checkbox' checked={persist} onChange={e => setPersist(e.target.checked)} /> 
+          Persist
         </label>
-        <button onClick={() => discover()} disabled={!accountId || loading}>{loading ? 'Loading…' : 'Discover from Spotify'}</button>
-        <button onClick={saveSelection} disabled={!accountId}>Save selection</button>
-        <button onClick={syncSelected} disabled={!accountId || syncing}>{syncing ? 'Syncing…' : 'Sync selected'}</button>
-        {lastSync && <span style={{ marginLeft: 8, opacity: 0.8 }}>{lastSync}</span>}
+        <button onClick={() => discover()} disabled={!accountId || loading}>
+          {loading ? 'Loading…' : 'Discover from Spotify'}
+        </button>
+        <button onClick={saveSelection} disabled={!accountId}>
+          Save selection
+        </button>
+        <button onClick={syncSelected} disabled={!accountId || syncing}>
+          {syncing ? 'Syncing…' : 'Sync selected'}
+        </button>
+        {lastSync && <span className="playlists-status">{lastSync}</span>}
       </div>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table className="playlists-table">
         <thead>
-          <tr style={{ textAlign: 'left' }}>
-            <th style={{ width: 32 }}>Sel</th>
+          <tr>
+            <th>Sel</th>
             <th>Name</th>
             <th>Owner</th>
             <th>ID</th>
@@ -165,15 +178,15 @@ const PlaylistsPage: React.FC = () => {
             return (
               <tr key={spId || p.id}>
                 <td><input type='checkbox' checked={checked} onChange={() => toggle(spId)} /></td>
-                <td>{p.name}</td>
-                <td>{p.owner ?? '-'}</td>
-                <td>{spId || '-'}</td>
+                <td className="playlist-name">{p.name}</td>
+                <td className="playlist-owner">{p.owner ?? '-'}</td>
+                <td className="playlist-id">{spId || '-'}</td>
                 <td>{p.snapshot ?? '-'}</td>
               </tr>
             )
           })}
           {discovered.length === 0 && (
-            <tr><td colSpan={5} style={{ textAlign: 'center', padding: 8, color: '#666' }}>No playlists discovered yet.</td></tr>
+            <tr><td colSpan={5} className="playlists-empty">No playlists discovered yet.</td></tr>
           )}
         </tbody>
       </table>
