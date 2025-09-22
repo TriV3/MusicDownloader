@@ -362,6 +362,11 @@ Implementation (completed):
 1. User can pick an alternate candidate and download succeeds
 2. Selection is stored for future reference
 
+Implementation (completed):
+- Backend: `POST /api/v1/downloads/enqueue` accepts `force=true` to bypass duplicate prevention (Step 4.2) and proceed with download.
+- Frontend: Candidates panel adds a Download action per candidate which first chooses the candidate and then calls enqueue with `force=true`. This persists selection and triggers the download immediately.
+- Docs updated under API to document the `force` parameter.
+
 ## Phase 5 — Dockerization and Synology Deployment
 
 ### Step 5.1: Dockerfile and Multi-Stage Build

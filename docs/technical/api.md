@@ -35,6 +35,7 @@ Current endpoints (v1)
   - POST `/api/v1/tracks/{id}/cover/refresh` — Refresh cover using Spotify album art if available, otherwise chosen YouTube thumbnail
  - Downloads:
   - POST `/api/v1/downloads/enqueue?track_id={id}&candidate_id={optional}&provider=yt_dlp`
+    - Optional `force=true` to bypass duplicate prevention (manual override)
   - GET `/api/v1/downloads/?status=&track_id=&limit=&offset=`
   - GET `/api/v1/downloads/{id}`
   - POST `/api/v1/downloads/cancel/{id}` — Cancel a queued download (409 if running)

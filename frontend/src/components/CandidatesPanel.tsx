@@ -102,6 +102,15 @@ export const CandidatesPanel: React.FC = () => {
     load()
   }
 
+  const downloadChosen = async (candId: number, trackId: number) => {
+    // Choose this candidate and then force enqueue a download regardless of duplicates
+    await fetch(`/api/v1/candidates/${candId}/choose`, { method: 'POST' })
+    await fetch(`/api/v1/downloads/enqueue?track_id=${trackId}&candidate_id=${candId}&force=true`, { method: 'POST' })
+    // Let user know; the Downloads page can show progress if needed
+    window.dispatchEvent(new Event('downloads:changed'))
+    alert('Download enqueued with manual override')
+  }
+
   const addManual = async () => {
     if (selectedTrack == null) return
     const payload = {
@@ -184,6 +193,9 @@ export const CandidatesPanel: React.FC = () => {
                     <td>{renderSignedDelta(trackDurationMs, c.duration_sec, c.duration_delta_sec)}</td>
                     <td>
                       {!c.chosen && c.id > 0 && <button onClick={() => choose(c.id)}>Choose</button>}
+                      {c.id > 0 && (
+                        <button onClick={() => downloadChosen(c.id, c.track_id)} style={{ marginLeft: 6 }}>Download</button>
+                      )}
                     </td>
                   </tr>
                   {expanded.has(rowKey) && c.provider === 'youtube' && (

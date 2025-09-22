@@ -110,6 +110,7 @@ async def enqueue_download(
     track_id: int,
     candidate_id: Optional[int] = None,
     provider: DownloadProvider = DownloadProvider.yt_dlp,
+    force: bool = Query(False, description="Bypass duplicate prevention to force download"),
     session: AsyncSession = Depends(get_session),
 ):
     # Validate references exist
@@ -159,7 +160,7 @@ async def enqueue_download(
         # Best-effort; if anything goes wrong, proceed with normal enqueue
         existing_path = None
 
-    if existing_path:
+    if existing_path and not force:
         dl = Download(
             track_id=track_id,
             candidate_id=candidate_id,
