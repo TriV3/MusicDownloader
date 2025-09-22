@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, and_, delete
+from sqlalchemy import select, and_, delete, func, distinct, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
@@ -9,6 +9,7 @@ try:
     from ...schemas.models import PlaylistCreate, PlaylistRead, TrackRead  # type: ignore
     from ...core.config import settings  # type: ignore
     from ...utils.normalize import normalize_track  # type: ignore
+    from ...db.models.models import LibraryFile  # type: ignore
 except Exception:  # pragma: no cover
     from db.session import get_session  # type: ignore
     from db.models.models import Playlist, SourceProvider, SourceAccount, OAuthToken, Track, TrackIdentity, PlaylistTrack  # type: ignore
@@ -53,19 +54,103 @@ async def create_playlist(payload: PlaylistCreate, session: AsyncSession = Depen
     return playlist
 
 
-@router.get("/{playlist_id}", response_model=PlaylistRead)
-async def get_playlist(playlist_id: int, session: AsyncSession = Depends(get_session)):
-    playlist = await session.get(Playlist, playlist_id)
-    if not playlist:
-        raise HTTPException(status_code=404, detail="Playlist not found")
-    return playlist
-
-
 def _get_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:
         raise HTTPException(status_code=500, detail=f"Missing env {name}")
     return value
+
+
+@router.get("/stats")
+async def playlists_stats(
+    include_other: bool = Query(True, description="Include 'other' category for manually added tracks without any playlist"),
+    selected_only: bool = Query(True, description="When true, only include playlists with selected=true"),
+    provider: Optional[SourceProvider] = Query(None, description="Filter by provider (e.g., spotify)"),
+    account_id: Optional[int] = Query(None, description="Filter by source account id"),
+    session: AsyncSession = Depends(get_session),
+):
+    # Per-playlist stats: total distinct tracks and distinct downloaded tracks (has a LibraryFile.exists)
+    stmt = (
+        select(
+            Playlist.id.label("playlist_id"),
+            Playlist.name.label("name"),
+            Playlist.provider.label("provider"),
+            func.count(distinct(PlaylistTrack.track_id)).label("total_tracks"),
+            func.count(distinct(case((LibraryFile.exists == True, PlaylistTrack.track_id)))).label("downloaded_tracks"),  # noqa: E712
+        )
+        .select_from(Playlist)
+        .join(PlaylistTrack, PlaylistTrack.playlist_id == Playlist.id, isouter=True)
+        .join(
+            LibraryFile,
+            (LibraryFile.track_id == PlaylistTrack.track_id) & (LibraryFile.exists == True),  # noqa: E712
+            isouter=True,
+        )
+    )
+
+    conds = []
+    if selected_only:
+        conds.append(Playlist.selected == True)  # noqa: E712
+    if provider is not None:
+        conds.append(Playlist.provider == provider)
+    if account_id is not None:
+        conds.append(Playlist.source_account_id == account_id)
+    if conds:
+        stmt = stmt.where(and_(*conds))
+
+    stmt = stmt.group_by(Playlist.id).order_by(Playlist.name.asc())
+    res = await session.execute(stmt)
+    items = []
+    for row in res.all():
+        row = row._asdict()
+        total = int(row.get("total_tracks") or 0)
+        downloaded = int(row.get("downloaded_tracks") or 0)
+        items.append({
+            "playlist_id": row.get("playlist_id"),
+            "name": row.get("name"),
+            "provider": (row.get("provider") or "").value if hasattr(row.get("provider"), "value") else row.get("provider"),
+            "total_tracks": total,
+            "downloaded_tracks": downloaded,
+            "not_downloaded_tracks": max(0, total - downloaded),
+        })
+
+    if include_other:
+        # Tracks with a MANUAL identity and not present in any playlist
+        other_stmt = (
+            select(
+                func.count(distinct(Track.id)).label("total_tracks"),
+                func.count(distinct(case((LibraryFile.exists == True, Track.id)))).label("downloaded_tracks"),  # noqa: E712
+            )
+            .select_from(Track)
+            .join(TrackIdentity, (TrackIdentity.track_id == Track.id) & (TrackIdentity.provider == SourceProvider.manual))
+            .join(PlaylistTrack, PlaylistTrack.track_id == Track.id, isouter=True)
+            .join(LibraryFile, (LibraryFile.track_id == Track.id) & (LibraryFile.exists == True), isouter=True)  # noqa: E712
+            .where(PlaylistTrack.id.is_(None))
+        )
+        other_res = await session.execute(other_stmt)
+        total_o, downloaded_o = other_res.first() or (0, 0)
+        items.append({
+            "playlist_id": None,
+            "name": "Other",
+            "provider": "other",
+            "total_tracks": int(total_o or 0),
+            "downloaded_tracks": int(downloaded_o or 0),
+            "not_downloaded_tracks": max(0, int(total_o or 0) - int(downloaded_o or 0)),
+        })
+
+    return items
+
+
+@router.get("/{playlist_id}", response_model=PlaylistRead)
+async def get_playlist(playlist_id: int, session: AsyncSession = Depends(get_session)):
+    """Retrieve a playlist by its internal id.
+
+    Placed after static routes (e.g., /stats) to avoid capturing those paths
+    as a dynamic parameter and causing 422 errors.
+    """
+    playlist = await session.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    return playlist
 
 
 async def _get_valid_token(session: AsyncSession, account_id: int) -> str:
