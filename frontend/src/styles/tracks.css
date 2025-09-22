@@ -137,6 +137,7 @@
   text-align: center;
   font-size: 1rem;
   color: var(--success-color);
+  padding: var(--spacing-xs);
 }
 
 .tracks-table .col-cover {
@@ -224,7 +225,7 @@
 }
 
 .tracks-table .col-actions {
-  width: 85px;
+  width: 90px;
   text-align: center;
 }
 
@@ -238,7 +239,7 @@
   transition: all 0.2s ease-in-out;
   white-space: nowrap;
   display: inline-block;
-  min-width: 32px;
+  min-width: 28px;
 }
 
 .tracks-table .col-actions a {

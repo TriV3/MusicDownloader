@@ -1,6 +1,8 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
+import { useAudioPlayer } from '../contexts/AudioPlayerContext'
 import type { NormalizationPreview } from './NormalizationPlayground'
+import './AudioPlayer.css'
 
 export type TrackRead = {
   id: number
@@ -21,6 +23,7 @@ export type TrackRead = {
 }
 
 export const TrackManager: React.FC = () => {
+  const { currentTrack, isPlaying, playTrack, togglePlayPause } = useAudioPlayer()
   const [tracks, setTracks] = React.useState<TrackRead[]>([])
   const [playlists, setPlaylists] = React.useState<Array<{ id: number; name: string }>>([])
   const [selectedPlaylistId, setSelectedPlaylistId] = React.useState<number | 'all'>('all')
@@ -216,6 +219,31 @@ export const TrackManager: React.FC = () => {
     }
   }
 
+  const handlePlayTrack = async (track: TrackRead) => {
+    // Check if track is already playing, toggle if so
+    if (currentTrack?.id === track.id) {
+      togglePlayPause()
+      return
+    }
+
+    // Check if track has been downloaded (has audio file available)
+    const isDownloaded = downloadedIds.has(track.id)
+    if (!isDownloaded) {
+      alert('Cette piste n\'a pas encore été téléchargée. Veuillez d\'abord la télécharger pour pouvoir l\'écouter.')
+      return
+    }
+
+    // Use the streaming endpoint for this track
+    const audioUrl = `/api/v1/library/stream/${track.id}`
+    
+    playTrack({
+      id: track.id,
+      title: track.title,
+      artists: track.artists,
+      duration_ms: track.duration_ms
+    }, audioUrl)
+  }
+
   return (
     <section>
       <div className="tracks-controls">
@@ -355,8 +383,18 @@ export const TrackManager: React.FC = () => {
             <tr key={t.id}>
               {selectedPlaylistId !== 'all' && <td className="col-id">{entry?.position ?? (idx + 1)}</td>}
               <td className="col-id">{t.id}</td>
-              <td className="col-downloaded" title={downloadedIds.has(t.id) ? 'Downloaded' : 'Not downloaded'}>
-                {downloadedIds.has(t.id) ? '✔' : ''}
+              <td className="col-downloaded">
+                {downloadedIds.has(t.id) ? (
+                  <button 
+                    className={`track-play-button ${currentTrack?.id === t.id && isPlaying ? 'playing' : ''}`}
+                    onClick={() => handlePlayTrack(t)}
+                    title={currentTrack?.id === t.id && isPlaying ? 'Pause' : 'Play'}
+                  >
+                    {currentTrack?.id === t.id && isPlaying ? '⏸️' : '▶️'}
+                  </button>
+                ) : (
+                  <span style={{ opacity: 0.3, fontSize: '0.75rem' }} title="Piste non téléchargée">—</span>
+                )}
               </td>
               <td className="col-cover">
                 {t.cover_url ? (

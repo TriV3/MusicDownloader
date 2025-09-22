@@ -399,3 +399,106 @@ async def scan_library(
         "updated": updated,
         "skipped": skipped,
     }
+
+
+# Add a new router for streaming by track_id
+stream_router = APIRouter(prefix="/library", tags=["library"])
+
+@stream_router.get("/stream/{track_id}")
+async def stream_by_track_id(track_id: int, request: Request, session: AsyncSession = Depends(get_session)):
+    """Stream the first available library file for a track with HTTP Range support.
+    
+    - Finds the first library file associated with the track
+    - Delegates to the same streaming logic as stream_library_file
+    - Returns 404 if no file found for the track
+    """
+    # Find the first library file for this track
+    stmt = select(LibraryFile).where(
+        and_(
+            LibraryFile.track_id == track_id,
+            LibraryFile.exists == True
+        )
+    ).limit(1)
+    
+    result = await session.execute(stmt)
+    library_file = result.scalar_one_or_none()
+    
+    if not library_file:
+        raise HTTPException(status_code=404, detail="No audio file found for this track")
+    
+    # Use the existing streaming logic
+    if not library_file.filepath:
+        raise HTTPException(status_code=404, detail="File path is missing")
+    
+    path = Path(library_file.filepath)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+    
+    # Get file stats for headers
+    stat = path.stat()
+    file_size = stat.st_size
+    last_modified = formatdate(stat.st_mtime, usegmt=True)
+    etag = f'"{stat.st_mtime}-{file_size}"'
+    
+    # Parse Range header if present
+    range_header = request.headers.get('range')
+    if range_header:
+        try:
+            ranges = parse_http_range(range_header, file_size)
+            if ranges and len(ranges) == 1:
+                start, end = ranges[0]
+                content_length = end - start + 1
+                
+                def iter_file_range():
+                    with open(path, 'rb') as f:
+                        f.seek(start)
+                        remaining = content_length
+                        while remaining > 0:
+                            chunk_size = min(8192, remaining)
+                            chunk = f.read(chunk_size)
+                            if not chunk:
+                                break
+                            remaining -= len(chunk)
+                            yield chunk
+                
+                headers = {
+                    'Content-Range': build_content_range_header(start, end, file_size),
+                    'Content-Length': str(content_length),
+                    'Accept-Ranges': 'bytes',
+                    'Content-Type': pick_audio_mime_from_path(path),
+                    'ETag': etag,
+                    'Last-Modified': last_modified,
+                    'Cache-Control': 'public, max-age=3600',
+                }
+                
+                return StreamingResponse(
+                    iter_file_range(),
+                    status_code=206,
+                    headers=headers
+                )
+        except Exception:
+            pass  # Fall back to full file response
+    
+    # Full file response
+    headers = {
+        'Content-Length': str(file_size),
+        'Accept-Ranges': 'bytes',
+        'Content-Type': pick_audio_mime_from_path(path),
+        'ETag': etag,
+        'Last-Modified': last_modified,
+        'Cache-Control': 'public, max-age=3600',
+    }
+    
+    def iter_file():
+        with open(path, 'rb') as f:
+            while True:
+                chunk = f.read(8192)
+                if not chunk:
+                    break
+                yield chunk
+    
+    return StreamingResponse(
+        iter_file(),
+        status_code=200,
+        headers=headers
+    )

@@ -1,6 +1,8 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout/Layout'
+import { AudioPlayerProvider } from './contexts/AudioPlayerContext'
+import GlobalAudioPlayer from './components/GlobalAudioPlayer'
 import DashboardPage from './routes/DashboardPage'
 import TracksPage from './routes/TracksPage'
 import PlaylistsPage from './routes/PlaylistsPage'
@@ -14,7 +16,8 @@ import './styles/globals.css'
 export default function App() {
   return (
     <BrowserRouter>
-      <Layout>
+      <AudioPlayerProvider>
+        <Layout>
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/tracks" element={<TracksPage />} />
@@ -31,7 +34,9 @@ export default function App() {
           <Route path="/downloads" element={<DownloadsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <GlobalAudioPlayer />
       </Layout>
+    </AudioPlayerProvider>
     </BrowserRouter>
   )
 }
