@@ -349,6 +349,12 @@ Implementation (completed):
 1. Re-enqueueing same track does not redownload identical file
 2. API returns informative status for duplicate attempts
 
+Implementation (completed):
+- The enqueue endpoint `POST /api/v1/downloads/enqueue` now checks for an existing `LibraryFile` for the given `track_id` (preferring the most recent `file_mtime`). If a file exists on disk, the API returns a `Download` row with `status="already"` and the existing `filepath`, without enqueuing a worker job.
+- If no `LibraryFile` is found, it falls back to the latest successful `Download` with a `filepath` that exists on disk.
+- Response remains `200 OK` with the `Download` representation so the UI can display the status consistently.
+- Tests: Added `backend/tests/test_duplicate_prevention.py` verifying a first fake download creates the file, and a subsequent enqueue for the same track returns `status=already` with a `filepath` and does not schedule work.
+
 ### Step 4.3: Manual Override
 - UI/API to override best candidate and force selection
 

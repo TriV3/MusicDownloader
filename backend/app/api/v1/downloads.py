@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import os
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,11 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 try:  # package mode
     from ...db.session import get_session  # type: ignore
-    from ...db.models.models import Download, DownloadStatus, DownloadProvider, Track, SearchCandidate  # type: ignore
+    from ...db.models.models import Download, DownloadStatus, DownloadProvider, Track, SearchCandidate, LibraryFile  # type: ignore
     from ...schemas.models import DownloadRead  # type: ignore
 except Exception:  # pragma: no cover
     from db.session import get_session  # type: ignore
-    from db.models.models import Download, DownloadStatus, DownloadProvider, Track, SearchCandidate  # type: ignore
+    from db.models.models import Download, DownloadStatus, DownloadProvider, Track, SearchCandidate, LibraryFile  # type: ignore
     from schemas.models import DownloadRead  # type: ignore
 
 
@@ -122,6 +123,61 @@ async def enqueue_download(
             raise HTTPException(status_code=404, detail="Candidate not found")
         if cand.track_id != track_id:
             raise HTTPException(status_code=400, detail="Candidate does not belong to track")
+
+    # Duplicate prevention: if a library file already exists for this track (and on disk),
+    # or a prior successful download produced a file that still exists, return an "already" item.
+    existing_path: Optional[str] = None
+    try:
+        # Prefer LibraryFile rows (they reflect current disk presence via exists flag)
+        lib_stmt = (
+            select(LibraryFile)
+            .where(LibraryFile.track_id == track_id)
+            .order_by(desc(LibraryFile.file_mtime))
+        )
+        lib_res = await session.execute(lib_stmt)
+        lib_row = lib_res.scalars().first()
+        if lib_row and lib_row.filepath and os.path.exists(lib_row.filepath):
+            existing_path = lib_row.filepath
+        else:
+            # Fallback: latest successful download with a filepath that exists
+            done_stmt = (
+                select(Download)
+                .where(
+                    and_(
+                        Download.track_id == track_id,
+                        Download.status == DownloadStatus.done,
+                        Download.filepath.is_not(None),
+                    )
+                )
+                .order_by(desc(Download.finished_at))
+            )
+            done_res = await session.execute(done_stmt)
+            prev_done = done_res.scalars().first()
+            if prev_done and prev_done.filepath and os.path.exists(prev_done.filepath):
+                existing_path = prev_done.filepath
+    except Exception:
+        # Best-effort; if anything goes wrong, proceed with normal enqueue
+        existing_path = None
+
+    if existing_path:
+        dl = Download(
+            track_id=track_id,
+            candidate_id=candidate_id,
+            provider=provider,
+            status=DownloadStatus.already,
+            filepath=existing_path,
+            created_at=datetime.utcnow(),
+            started_at=datetime.utcnow(),
+            finished_at=datetime.utcnow(),
+        )
+        session.add(dl)
+        await session.flush()
+        try:
+            await session.commit()
+        except Exception:
+            pass
+        # Do not enqueue to worker — we already have the file
+        return dl
 
     dl = Download(
         track_id=track_id,
