@@ -24,6 +24,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Set
 import logging
+import concurrent.futures
 
 from .normalize import normalize_track, duration_delta_sec
 
@@ -99,6 +100,93 @@ def _normalize_query_string(q: str) -> str:
     # Collapse whitespace
     q2 = re.sub(r"\s+", " ", q2).strip()
     return q2
+def _seconds_from_duration_str(s: Optional[str]) -> Optional[int]:
+    """Parse 'HH:MM:SS' or 'MM:SS' duration strings to seconds."""
+    if not s:
+        return None
+    parts = s.split(":")
+    try:
+        parts = list(map(int, parts))
+    except ValueError:
+        return None
+    if len(parts) == 3:
+        h, m, sec = parts
+        return h * 3600 + m * 60 + sec
+    if len(parts) == 2:
+        m, sec = parts
+        return m * 60 + sec
+    if len(parts) == 1:
+        return parts[0]
+    return None
+
+try:  # Optional youtube-search-python provider
+    from youtubesearchpython import VideosSearch  # type: ignore
+except Exception:  # pragma: no cover
+    VideosSearch = None  # type: ignore
+
+def _run_yts_python_search(query: str, limit: int = 10) -> List[YouTubeResult]:
+    """Perform a YouTube search using youtube-search-python (default provider)."""
+    if VideosSearch is None:
+        logger.warning("youtube-search-python is not installed. Falling back to yt-dlp.")
+        return _run_yt_dlp_search(query, limit=limit)
+    try:
+        timeout_sec = float(os.environ.get("YOUTUBE_SEARCH_TIMEOUT", "8"))
+    except Exception:
+        timeout_sec = 8.0
+    ysp_language = os.environ.get("YTSP_LANGUAGE")
+    ysp_region = os.environ.get("YTSP_REGION")
+
+    def _do_search():
+        vs = VideosSearch(query, limit=limit, language=ysp_language, region=ysp_region)
+        return vs.result()
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_do_search)
+            data = fut.result(timeout=timeout_sec)
+    except concurrent.futures.TimeoutError:
+        logger.warning("youtube-search-python timed out after %.1f seconds for query: %s", timeout_sec, query)
+        return []
+    except Exception as e:
+        logger.warning("youtube-search-python failed for query '%s': %s", query, e)
+        return []
+
+    items = (data or {}).get("result") or []
+    results: List[YouTubeResult] = []
+    for it in items:
+        vid = it.get("id") or ""
+        title = it.get("title") or ""
+        url = it.get("link") or (f"https://www.youtube.com/watch?v={vid}" if vid else "")
+        # Channel info may be dict or string
+        ch = None
+        ch_obj = it.get("channel")
+        if isinstance(ch_obj, dict):
+            ch = ch_obj.get("name")
+        elif isinstance(ch_obj, str):
+            ch = ch_obj
+        dur_s = _seconds_from_duration_str(it.get("duration"))
+        if not vid or not title:
+            continue
+        results.append(
+            YouTubeResult(
+                external_id=vid,
+                title=title,
+                url=url,
+                channel=ch,
+                duration_sec=dur_s,
+            )
+        )
+    if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
+        logger.debug("youtubesearchpython raw results: %d", len(results))
+    return results
+
+def _provider_search(query: str, limit: int) -> List[YouTubeResult]:
+    """Dispatch to selected search provider (default: yts_python)."""
+    provider = os.environ.get("YOUTUBE_SEARCH_PROVIDER", "yts_python").lower()
+    if provider == "yts_python":
+        return _run_yts_python_search(query, limit=limit)
+    return _run_yt_dlp_search(query, limit=limit)
+
 
 
 def _parse_artists(artists: str) -> List[str]:
@@ -497,14 +585,13 @@ def _run_yt_dlp_search(query: str, limit: int = 10) -> List[YouTubeResult]:
                 duration_sec=data.get("duration"),
             )
         )
-    # Optional debug logging of raw results
+    # Optional debug logging of raw results (demoted to debug)
     try:
         if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
             sample = "; ".join(
                 f"{r.external_id}:{(r.title or '')[:80]} ({r.duration_sec or '-'}s)" for r in results[:5]
             )
-            # Use warning level so it shows even if root handler is WARNING
-            logger.warning(
+            logger.debug(
                 "yt-dlp raw results for query=%r (limit=%s): %d. First: %s",
                 query,
                 limit,
@@ -558,11 +645,11 @@ def search_youtube(
     else:
         queries = _build_search_queries(artists, title, prefer_extended=prefer_extended)
         if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
-            logger.warning("YouTube search queries: %s", " | ".join(queries))
+            logger.debug("YouTube search queries: %s", " | ".join(queries))
         collected: List[YouTubeResult] = []
         seen: Set[str] = set()
         for q in queries:
-            batch = _run_yt_dlp_search(q, limit=limit)
+            batch = _provider_search(q, limit=limit)
             for r in batch:
                 if r.external_id not in seen:
                     seen.add(r.external_id)
@@ -571,17 +658,17 @@ def search_youtube(
                 break
         raw_results = collected
         if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
-            logger.warning("Collected raw unique results: %d", len(raw_results))
+            logger.debug("Collected raw unique results: %d", len(raw_results))
         # Optional: try a normalized fallback if no results, to handle punctuation-heavy titles
         if not raw_results and os.environ.get("YOUTUBE_SEARCH_NORMALIZED_FALLBACK") == "1":
             norm_query = _normalize_query_string(f"{artists} {title}".strip())
             if norm_query and norm_query not in queries:
                 if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
-                    logger.warning("Trying normalized fallback query: %s", norm_query)
-                batch = _run_yt_dlp_search(norm_query, limit=limit)
+                    logger.debug("Trying normalized fallback query: %s", norm_query)
+                batch = _provider_search(norm_query, limit=limit)
                 raw_results = batch
                 if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
-                    logger.warning("Normalized fallback raw results: %d", len(raw_results))
+                    logger.debug("Normalized fallback raw results: %d", len(raw_results))
         if not raw_results and os.environ.get("YOUTUBE_SEARCH_FALLBACK_FAKE") == "1":
             logger.info("Falling back to fake YouTube results for multi-queries: %s", ", ".join(queries[:3]))
             raw_results = fake_results(f"{artists} {title}".strip())
@@ -591,7 +678,7 @@ def search_youtube(
         if not _is_probable_set(r.title, r.duration_sec, track_duration_ms)
     ]
     if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1" and raw_results:
-        logger.warning("Filtered out probable sets: %d (kept %d)", len(raw_results) - len(filtered), len(filtered))
+        logger.debug("Filtered out probable sets: %d (kept %d)", len(raw_results) - len(filtered), len(filtered))
     scored: List[ScoredResult] = []
     for r in filtered[: max(1, int(limit) if isinstance(limit, int) else 10)]:
         score = score_result(artists, title, track_duration_ms, r, prefer_extended=prefer_extended)
