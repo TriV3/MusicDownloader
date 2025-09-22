@@ -80,6 +80,11 @@ Frontend UX:
 - YouTube Search:
 	- `YOUTUBE_SEARCH_LIMIT` (default 8) maximum results to request.
 	- `YOUTUBE_SEARCH_FAKE=1` return deterministic fake results (used in tests).
+	- Pagination and early stop:
+		- `YOUTUBE_SEARCH_MAX_PAGES` (default 10) maximum pages to fetch
+		- `YOUTUBE_SEARCH_PAGE_SIZE` (default min(25, limit) but at least 5)
+		- `YOUTUBE_SEARCH_PAGE_STOP_THRESHOLD` (default 0.50) early stop when any candidate score exceeds this
+	- Provider timeout behavior: on timeout, the search returns an empty set (unless `YOUTUBE_SEARCH_FALLBACK_FAKE=1`).
 
 Install `yt-dlp` locally (e.g., `pip install yt-dlp`) for real searches; it's not yet pinned in `backend/requirements.txt` until download steps.
 

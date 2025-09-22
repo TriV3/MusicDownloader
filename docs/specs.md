@@ -167,6 +167,15 @@ Implementation (completed):
 - Fake mode via `YOUTUBE_SEARCH_FAKE=1` supplies deterministic sample results for tests.
 - Frontend `YouTubeSearchPanel` allows selecting track, toggling extended mix preference, choosing persistence, and viewing results.
 
+Pagination and early-stop behavior (added):
+- The backend fetches YouTube search results page by page until one candidate scores above 0.50 or a maximum number of pages is reached.
+- Default controls via environment variables:
+	- YOUTUBE_SEARCH_MAX_PAGES (default 10)
+	- YOUTUBE_SEARCH_PAGE_SIZE (default min(25, limit) but at least 5)
+	- YOUTUBE_SEARCH_PAGE_STOP_THRESHOLD (default 0.50)
+- With youtube-search-python provider, native pagination is used; with yt-dlp, pagination is simulated by increasing the search limit.
+- On provider timeout, the search returns an empty result set (no fallback) unless YOUTUBE_SEARCH_FALLBACK_FAKE=1.
+
 **Validation Criteria:**
 1. API returns scored YouTube candidates for a given track
 2. UI exposes a toggle to prefer Extended/Club Mix

@@ -337,6 +337,9 @@ def _text_similarity(norm_query: str, norm_title: str, prefer_extended_mode: boo
     inter = len(q_tokens & t_tokens)
     union = len(q_tokens | t_tokens)
     jaccard = inter / union
+    # If query has multiple tokens and only 1 overlaps, cap contribution a bit lower (avoid inflated 0.5 on single word like 'dance')
+    if len(q_tokens) >= 2 and inter == 1:
+        jaccard = min(jaccard, 0.35)
     if not prefer_extended_mode:
         return jaccard
     # In extended mode, do not penalize extra tokens like "extended mix" when all query tokens are present.
@@ -400,9 +403,15 @@ def get_score_components(
     title_l = (result_title or "").lower()
     # Determine if the title carries an explicit track version tag (extended/club/remix/edit)
     is_version_tag, is_explicit_extended, is_explicit_remix = _has_explicit_version_tag(result_title)
-    # Treat as extended variant only when explicit (ignore generic "mix") and not a long-form set
-    is_extended_title = is_version_tag and (is_explicit_extended or is_explicit_remix)
-    text_sim = _text_similarity(norm_query, norm_title, prefer_extended_mode=(prefer_extended and is_extended_title))
+    # Extended mode and bonuses apply ONLY to explicit Extended/Club variants, not Remix/Edit
+    is_extended_variant = bool(is_explicit_extended)
+    is_remix_variant = bool(is_explicit_remix)
+    text_sim = _text_similarity(
+        norm_query,
+        norm_title,
+        # Do not elevate coverage for Remix/Edit, only for explicit Extended/Club
+        prefer_extended_mode=(prefer_extended and is_extended_variant),
+    )
     # Duration component: proportional with relaxed tolerance for Extended/Club/Remix variants.
     duration_bonus = 0.0
     if track_duration_ms and result_duration_sec:
@@ -411,7 +420,7 @@ def get_score_components(
             base_weight = 0.35
             # If this looks like a long-form mix (e.g., +5 minutes vs track), treat harshly
             is_long_mix = delta is not None and delta > 300
-            if is_extended_title and prefer_extended and not is_long_mix:
+            if is_extended_variant and prefer_extended and not is_long_mix:
                 # Extended/remix path: reward positive deltas, penalize negative deltas
                 if delta >= 0:
                     # Up to +0.12 bonus over the first +150s, plus closeness bonus near target
@@ -437,9 +446,9 @@ def get_score_components(
             if raw > base_weight + 0.10:
                 raw = base_weight + 0.10
             duration_bonus = raw
-    # Award extended bonus only for explicit extended/remix versions (not generic DJ mixes)
+    # Award extended bonus only for explicit Extended/Club versions (not Remix/Edit, not DJ mixes)
     ext_bonus = 0.0
-    if prefer_extended and is_extended_title:
+    if prefer_extended and is_extended_variant:
         ext_bonus = 0.35
     ch_bonus = _official_channel_bonus(result_channel, primary_artist)
 
@@ -656,27 +665,150 @@ def search_youtube(
         queries = _build_search_queries(artists, title, prefer_extended=prefer_extended)
         if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
             logger.debug("YouTube search queries: %s", " | ".join(queries))
+
+        # Pagination controls
+        def _env_int(name: str, default: int) -> int:
+            try:
+                return int(os.environ.get(name, str(default)))
+            except Exception:
+                return default
+        def _env_float(name: str, default: float) -> float:
+            try:
+                return float(os.environ.get(name, str(default)))
+            except Exception:
+                return default
+
+        page_size = _env_int("YOUTUBE_SEARCH_PAGE_SIZE", max(5, min(25, int(limit) if isinstance(limit, int) else 10)))
+        max_pages = _env_int("YOUTUBE_SEARCH_MAX_PAGES", 10)
+        stop_threshold = _env_float("YOUTUBE_SEARCH_PAGE_STOP_THRESHOLD", 0.5)
+
         collected: List[YouTubeResult] = []
         seen: Set[str] = set()
+        found_high_score = False
+        any_timeout = False
+
+        provider = os.environ.get("YOUTUBE_SEARCH_PROVIDER", "yts_python").lower()
+        ysp_language = os.environ.get("YTSP_LANGUAGE")
+        ysp_region = os.environ.get("YTSP_REGION")
+
         for q in queries:
             # Log the exact query string sent to the provider
             try:
                 logger.info("YouTube search query: %s", q)
             except Exception:
                 pass
-            # Ensure visibility in console regardless of logging config
             try:
                 print(f"[youtube_search] query: {q}")
             except Exception:
                 pass
-            batch = _provider_search(q, limit=limit)
-            for r in batch:
-                if r.external_id not in seen:
-                    seen.add(r.external_id)
-                    collected.append(r)
-            if len(collected) >= limit:
+
+            if provider == "yts_python" and VideosSearch is not None:
+                # Native pagination with youtube-search-python
+                try:
+                    timeout_sec = float(os.environ.get("YOUTUBE_SEARCH_TIMEOUT", "8"))
+                except Exception:
+                    timeout_sec = 8.0
+
+                vs = VideosSearch(q, limit=page_size, language=ysp_language, region=ysp_region)
+
+                def _first_page():
+                    return vs.result()
+                def _next_page():
+                    return vs.next()
+
+                page = 0
+                while page < max_pages:
+                    # Fetch page with timeout in a worker thread
+                    try:
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                            fut = ex.submit(_first_page if page == 0 else _next_page)
+                            data = fut.result(timeout=timeout_sec)
+                    except concurrent.futures.TimeoutError:
+                        logger.warning("youtube-search-python timed out after %.1f seconds (page %d) for query: %s", timeout_sec, page + 1, q)
+                        any_timeout = True
+                        # Honor test expectation: on timeout, we return an empty result set
+                        collected.clear()
+                        found_high_score = False
+                        break
+                    except Exception as e:
+                        logger.warning("youtube-search-python failed (page %d) for query '%s': %s", page + 1, q, e)
+                        break
+                    # Some library versions may return non-dict (e.g., bool) when no more results
+                    if not isinstance(data, dict):
+                        if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
+                            logger.debug("youtubesearchpython non-dict page data (%s), stopping", type(data).__name__)
+                        items = []
+                    else:
+                        items = (data or {}).get("result") or []
+                    new_count = 0
+                    for it in items:
+                        vid = it.get("id") or ""
+                        title2 = it.get("title") or ""
+                        url = it.get("link") or (f"https://www.youtube.com/watch?v={vid}" if vid else "")
+                        ch = None
+                        ch_obj = it.get("channel")
+                        if isinstance(ch_obj, dict):
+                            ch = ch_obj.get("name")
+                        elif isinstance(ch_obj, str):
+                            ch = ch_obj
+                        dur_s = _seconds_from_duration_str(it.get("duration"))
+                        if not vid or not title2 or vid in seen:
+                            continue
+                        seen.add(vid)
+                        ytr = YouTubeResult(external_id=vid, title=title2, url=url, channel=ch, duration_sec=dur_s)
+                        collected.append(ytr)
+                        new_count += 1
+                        # Early score check
+                        sc = score_result(artists, title, track_duration_ms, ytr, prefer_extended=prefer_extended)
+                        if sc >= stop_threshold:
+                            found_high_score = True
+                    if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
+                        logger.debug("youtubesearchpython page %d added %d new results (total %d)", page + 1, new_count, len(collected))
+                    # Stop if we found at least one good hit
+                    if found_high_score:
+                        break
+                    # No more items? break
+                    if not items:
+                        break
+                    page += 1
+            else:
+                # Fallback: simulate pagination by increasing the limit on provider fetches
+                page = 0
+                prev_len = 0
+                while page < max_pages:
+                    desired = page_size * (page + 1)
+                    batch = _provider_search(q, limit=desired)
+                    # Take only new items
+                    new = 0
+                    for r in batch:
+                        if r.external_id not in seen:
+                            seen.add(r.external_id)
+                            collected.append(r)
+                            new += 1
+                            sc = score_result(artists, title, track_duration_ms, r, prefer_extended=prefer_extended)
+                            if sc >= stop_threshold:
+                                found_high_score = True
+                    if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
+                        logger.debug("yt-dlp sim page %d added %d new results (total %d)", page + 1, new, len(collected))
+                    if found_high_score:
+                        break
+                    if len(collected) == prev_len:
+                        # No growth → stop
+                        break
+                    prev_len = len(collected)
+                    page += 1
+
+            # Stop trying other queries if we already got a good hit
+            if found_high_score:
                 break
-        raw_results = collected
+            if any_timeout:
+                break
+
+        # If any timeout occurred, return empty set (test expectation)
+        if any_timeout:
+            raw_results = []
+        else:
+            raw_results = collected
         if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
             logger.debug("Collected raw unique results: %d", len(raw_results))
         # Optional: try a normalized fallback if no results, to handle punctuation-heavy titles

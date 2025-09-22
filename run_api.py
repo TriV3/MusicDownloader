@@ -21,12 +21,15 @@ os.environ["PYTHONPATH"] = os.pathsep.join(
 
 if __name__ == "__main__":
   # Run uvicorn with reload and limit watch dirs to backend/app for stability
+  log_level = os.environ.get("APP_LOG_LEVEL", "info").lower()
   run(
     "backend.app.main:app",
     host="0.0.0.0",
     port=8000,
     reload=True,
     reload_dirs=[BACKEND_APP_DIR],
+    log_level=log_level,
+    access_log=True,
     # Set the working directory so relative file paths (like music.db) resolve at repo root
     # Note: uvicorn's run() doesn't take cwd, but our sys.path/PYTHONPATH adjustments above suffice
   )

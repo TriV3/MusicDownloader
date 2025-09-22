@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+import logging
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
@@ -78,6 +79,23 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def on_startup():
+    # Ensure a basic logging configuration exists so our module logs are visible
+    try:
+        level_name = os.environ.get("APP_LOG_LEVEL", "INFO").upper()
+        level = getattr(logging, level_name, logging.INFO)
+        root = logging.getLogger()
+        if not root.handlers:
+            logging.basicConfig(
+                level=level,
+                format="[%(asctime)s] %(levelname)s - %(name)s: %(message)s",
+            )
+        else:
+            root.setLevel(level)
+        # Make sure our package logs propagate and are at least at the configured level
+        logging.getLogger("backend").setLevel(level)
+        logging.getLogger("backend.app").setLevel(level)
+    except Exception:
+        pass
     # Create tables (simple init, replace by migrations later)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -116,6 +134,74 @@ async def on_startup():
                     pass
         except Exception:
             pass
+
+        # Repair legacy SQLite schemas where tracks.id is NOT a PRIMARY KEY (causes NOT NULL constraint on insert)
+        # We rebuild the table with the correct schema and preserve data.
+        try:  # pragma: no cover
+            result = await conn.exec_driver_sql("PRAGMA table_info(tracks)")
+            rows = result.fetchall()
+            if rows:
+                # rows: cid, name, type, notnull, dflt_value, pk
+                id_row = next((r for r in rows if r[1] == "id"), None)
+                if id_row is not None:
+                    id_pk_flag = id_row[5]
+                    if not id_pk_flag:
+                        print("[startup] Migrating tracks table to set id as PRIMARY KEY AUTOINCREMENT …")
+                        # Disable FKs for table rebuild
+                        await conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+                        # Create new table with correct schema
+                        await conn.exec_driver_sql(
+                            """
+                            CREATE TABLE IF NOT EXISTS tracks_new (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                title VARCHAR(500) NOT NULL,
+                                artists VARCHAR(500) NOT NULL,
+                                album VARCHAR(500),
+                                duration_ms INTEGER,
+                                isrc VARCHAR(50),
+                                year INTEGER,
+                                explicit BOOLEAN NOT NULL DEFAULT 0,
+                                cover_url VARCHAR(1000),
+                                normalized_title VARCHAR(500),
+                                normalized_artists VARCHAR(500),
+                                genre VARCHAR(200),
+                                bpm INTEGER,
+                                created_at DATETIME,
+                                updated_at DATETIME
+                            )
+                            """
+                        )
+                        # Determine columns present to copy
+                        existing_cols = [r[1] for r in rows]
+                        desired = [
+                            "id","title","artists","album","duration_ms","isrc","year","explicit","cover_url",
+                            "normalized_title","normalized_artists","genre","bpm","created_at","updated_at"
+                        ]
+                        copy_cols = [c for c in desired if c in existing_cols]
+                        cols_csv = ",".join(copy_cols)
+                        await conn.exec_driver_sql(
+                            f"INSERT INTO tracks_new ({cols_csv}) SELECT {cols_csv} FROM tracks"
+                        )
+                        await conn.exec_driver_sql("DROP TABLE tracks")
+                        await conn.exec_driver_sql("ALTER TABLE tracks_new RENAME TO tracks")
+                        # Recreate indexes
+                        await conn.exec_driver_sql(
+                            "CREATE INDEX IF NOT EXISTS ix_tracks_normalized_title ON tracks (normalized_title)"
+                        )
+                        await conn.exec_driver_sql(
+                            "CREATE INDEX IF NOT EXISTS ix_tracks_normalized_artists ON tracks (normalized_artists)"
+                        )
+                        await conn.exec_driver_sql(
+                            "CREATE INDEX IF NOT EXISTS ix_track_isrc ON tracks (isrc)"
+                        )
+                        await conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+                        print("[startup] Tracks table migration complete.")
+        except Exception as _e:
+            # Best-effort; continue startup if migration isn't applicable
+            try:
+                print(f"[startup] Tracks table migration skipped or failed: {_e}")
+            except Exception:
+                pass
 
         # Auto-migrate playlists.selected column (Step 3.1)
         try:  # pragma: no cover
