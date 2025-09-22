@@ -247,36 +247,36 @@ def _has_explicit_version_tag(title: str) -> tuple[bool, bool, bool]:
 
 
 def _build_search_queries(artists: str, title: str, prefer_extended: bool) -> List[str]:
-    """Build search queries prioritizing the exact Spotify name first.
+    """Build YouTube search queries using the common "Artists - Title" pattern only.
 
     Strategy:
-    1) Exact Spotify artists + title (as-is, including version like "- Radio Edit").
-    2) If multiple artists, try primary artist + same title (as-is). This helps when uploads omit featured artists.
-    3) If prefer_extended and the title does not already indicate extended, try an explicit "extended mix" suffix with the exact title.
+    1) "Artists - Title" (exact).
+    2) If multiple artists, also try "PrimaryArtist - Title".
+    3) If prefer_extended and title does not already indicate extended, add "Artists - Title extended mix".
 
-    We intentionally avoid generic "remix" queries, and we don't generate title-only variants.
+    We intentionally avoid space-only variants or title-only variants.
     """
     norm = normalize_track(artists, title)
     primary = norm.primary_artist
     artists_list = _parse_artists(artists)
 
     queries: List[str] = []
-    # 1) Exact Spotify name (artists + title)
-    raw_query = f"{artists} {title}".strip()
+    # 1) Exact pattern with hyphen
+    raw_query = f"{artists} - {title}".strip()
     if raw_query:
         queries.append(raw_query)
 
-    # 2) Primary + same title if multiple artists
+    # 2) Primary artist variant when multiple artists
     if len(artists_list) > 1:
-        q2 = f"{primary} {title}".strip()
+        q2 = f"{primary} - {title}".strip()
         if q2 and q2.lower() != raw_query.lower():
             queries.append(q2)
 
-    # 3) Prefer extended: add explicit extended mix suffix to the exact title
+    # 3) Prefer extended: add explicit extended mix suffix with hyphen pattern
     if prefer_extended:
         title_l = (title or "").lower()
         if not any(k in title_l for k in ["extended", "club mix", "extended mix", "club edit"]):
-            q3 = f"{artists} {title} extended mix".strip()
+            q3 = f"{artists} - {title} extended mix".strip()
             if q3 and q3.lower() not in {q.lower() for q in queries}:
                 queries.append(q3)
 
@@ -640,7 +640,17 @@ def search_youtube(
     _ensure_debug_logger_level()
     raw_results: List[YouTubeResult]
     if os.environ.get("YOUTUBE_SEARCH_FAKE") == "1":
-        query = f"{artists} {title}".strip()
+        query = f"{artists} - {title}".strip()
+        # Log the exact query we use in fake mode as well
+        try:
+            logger.info("YouTube search query: %s", query)
+        except Exception:
+            pass
+        # Ensure visibility in console regardless of logging config
+        try:
+            print(f"[youtube_search] query: {query}")
+        except Exception:
+            pass
         raw_results = fake_results(query)
     else:
         queries = _build_search_queries(artists, title, prefer_extended=prefer_extended)
@@ -649,6 +659,16 @@ def search_youtube(
         collected: List[YouTubeResult] = []
         seen: Set[str] = set()
         for q in queries:
+            # Log the exact query string sent to the provider
+            try:
+                logger.info("YouTube search query: %s", q)
+            except Exception:
+                pass
+            # Ensure visibility in console regardless of logging config
+            try:
+                print(f"[youtube_search] query: {q}")
+            except Exception:
+                pass
             batch = _provider_search(q, limit=limit)
             for r in batch:
                 if r.external_id not in seen:
@@ -685,4 +705,39 @@ def search_youtube(
         scored.append(ScoredResult(**r.__dict__, score=score))
     # Stable deterministic ordering: score desc then external_id asc
     scored.sort(key=lambda s: (-s.score, s.external_id))
-    return scored
+    # Apply filtering (drop negative and optional min score)
+    min_score = _env_min_score()
+    drop_neg = _env_drop_negative()
+    return filter_scored_results(scored, min_score=min_score, drop_negative=drop_neg)
+
+
+def filter_scored_results(
+    results: List[ScoredResult],
+    *,
+    min_score: Optional[float] = None,
+    drop_negative: bool = True,
+) -> List[ScoredResult]:
+    """Filter scored results by threshold and optionally drop negatives."""
+    out: List[ScoredResult] = []
+    for r in results:
+        if drop_negative and r.score < 0:
+            continue
+        if min_score is not None and r.score < min_score:
+            continue
+        out.append(r)
+    return out
+
+
+def _env_min_score() -> Optional[float]:
+    try:
+        v = os.environ.get("YOUTUBE_SEARCH_MIN_SCORE")
+        if v is None or v == "":
+            return None
+        return float(v)
+    except Exception:
+        return None
+
+
+def _env_drop_negative() -> bool:
+    # Default to dropping negatives
+    return os.environ.get("YOUTUBE_SEARCH_DROP_NEGATIVE", "1") != "0"

@@ -74,6 +74,7 @@ async def test_fake_download_creates_file(tmp_path):
         last = items[0]
         assert last["status"] == "done"
         # Verify a file exists in tmp_path
-        import pathlib
-        files = list(pathlib.Path(tmp_path).glob("*.*"))
-        assert files, "No output file generated in fake mode"
+    import pathlib
+    # Hierarchical layout: search recursively
+    files = list(pathlib.Path(tmp_path).rglob("*.*"))
+    assert files, "No output file generated in fake mode"

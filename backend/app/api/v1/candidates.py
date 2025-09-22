@@ -3,6 +3,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
+import os
 
 try:
     from ...db.session import get_session  # type: ignore
@@ -63,6 +64,8 @@ async def list_candidates(
     sort: Optional[str] = Query(None, description="score (default desc) | duration_delta"),
     chosen_only: bool = Query(False),
     prefer_extended: bool = Query(False, description="When true, compute breakdown with extended preference"),
+    min_score: Optional[float] = Query(None, description="Minimum score threshold to include non-chosen candidates"),
+    drop_negative: Optional[bool] = Query(None, description="When true, exclude candidates with negative score (non-chosen)"),
 ):
     stmt = select(SearchCandidate)
     conds = []
@@ -111,6 +114,41 @@ async def list_candidates(
                 )
         return base
     enriched = [_attach_with_pref(c) for c in rows]
+    # Apply server-side filtering: drop negative scores by default and honor optional min score.
+    def _env_min_score() -> Optional[float]:
+        try:
+            v = os.environ.get("YOUTUBE_SEARCH_MIN_SCORE")
+            if not v:
+                return None
+            return float(v)
+        except Exception:
+            return None
+    def _env_drop_negative() -> bool:
+        return os.environ.get("YOUTUBE_SEARCH_DROP_NEGATIVE", "1") != "0"
+    # Prefer explicit query params when provided, else fall back to env defaults
+    effective_min_score = min_score if (min_score is not None) else _env_min_score()
+    effective_drop_negative = drop_negative if (drop_negative is not None) else _env_drop_negative()
+    # Keep chosen candidates regardless of thresholds; filter the rest by score
+    filtered = []
+    for item in enriched:
+        if item.chosen:
+            filtered.append(item)
+            continue
+        # Use the same metric the UI displays: score_breakdown.total when present, else raw score
+        display_score: Optional[float] = None
+        try:
+            if getattr(item, "score_breakdown", None) is not None:
+                display_score = getattr(item.score_breakdown, "total", None)  # type: ignore[attr-defined]
+        except Exception:
+            display_score = None
+        if display_score is None:
+            display_score = item.score
+        if effective_drop_negative and (display_score is not None) and display_score < 0:
+            continue
+        if (effective_min_score is not None) and (display_score is not None) and display_score < effective_min_score:
+            continue
+        filtered.append(item)
+    enriched = filtered
     if sort == "duration_delta":
         enriched.sort(key=lambda c: (c.duration_delta_sec is None, c.duration_delta_sec))
     return enriched

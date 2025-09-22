@@ -342,6 +342,12 @@ Implementation (completed):
 	- Sorting by Score remains default with stable ordering.
 - Tests: added keyword penalty tests; existing channel bonus tests still pass.
 
+Server-side filtering behavior (implemented)
+
+- The backend drops negatively scored candidates by default to reduce noise.
+- An optional environment variable YOUTUBE_SEARCH_MIN_SCORE can enforce a global minimum (e.g., 0.30 or 0.50). When set, only candidates with score >= min are returned.
+- This filtering is applied consistently across providers after scoring, prior to persistence and response, ensuring the UI Strict filter shows only eligible items.
+
 ### Step 4.2: Duplicate Prevention
 - Check existing LibraryFile and prior successful downloads before enqueueing
 
@@ -366,6 +372,49 @@ Implementation (completed):
 - Backend: `POST /api/v1/downloads/enqueue` accepts `force=true` to bypass duplicate prevention (Step 4.2) and proceed with download.
 - Frontend: Candidates panel adds a Download action per candidate which first chooses the candidate and then calls enqueue with `force=true`. This persists selection and triggers the download immediately.
 - Docs updated under API to document the `force` parameter.
+
+### Step 4.4: Library Directory Hierarchy
+- All downloaded files must be saved using the following directory hierarchy:
+  - {LIBRARY_DIR}\{provider}\{playlist}\{file}
+- Example:
+  - library\spotify\Twilight Beats\Rezone - Happiness.mp3
+- For manually added tracks, the path must be:
+  - {LIBRARY_DIR}\other\{file} (no playlist level)
+
+Implementation notes:
+- Base directory:
+  - Controlled by LIBRARY_DIR (default: library at the project root). The full directory tree must be created on demand.
+- Provider folder:
+  - spotify for tracks originating from Spotify (e.g., via playlist sync).
+  - other for tracks created via manual import or manual add.
+  - For future providers, use their lowercase slug (e.g., youtube, soundcloud).
+- Playlist folder:
+  - Use the human-readable playlist name for Spotify-sourced tracks.
+  - When a playlist context is not available for a provider, store directly under {LIBRARY_DIR}\{provider}\ without a playlist subfolder.
+- File name:
+  - Use: "Artists - Title.ext" where ext is the final encoded format (mp3/m4a).
+- Path safety and deduplication:
+  - Sanitize provider/playlist/file components for Windows:
+    - Replace invalid characters <>:"/\|?* with underscore.
+    - Collapse repeated spaces and trim leading/trailing spaces and dots.
+  - Enforce a safe maximum full path length (e.g., 240 characters).
+  - If the target file already exists, append a numeric suffix before the extension:
+    - "Artists - Title (2).mp3", incrementing as needed.
+
+Validation Criteria:
+1. A Spotify track downloaded from playlist "Twilight Beats" is saved to:
+   - library\spotify\Twilight Beats\Rezone - Happiness.mp3
+2. A manually added track is saved to:
+   - library\other\Artists - Title.mp3
+3. Invalid characters are sanitized and duplicate targets receive an incrementing numeric suffix.
+4. Required directories are created automatically; downloads do not fail due to missing folders.
+
+Multi-playlist replication (additional behavior)
+
+- When a track belongs to multiple playlists, it is downloaded once, then copied into each Spotify playlist subfolder.
+- The primary output path is determined by the downloader's storage context; after completion, the worker replicates the file into all other Spotify playlists that contain the track.
+- Each replicated copy is registered as a separate `LibraryFile` row (unique filepath), with size, mtime, and checksum.
+- Duplicate-prevention at enqueue time remains unchanged: the API returns `status=already` if the track is already present; replication is a post-download action and does not trigger extra jobs.
 
 ## Phase 5 — Dockerization and Synology Deployment
 

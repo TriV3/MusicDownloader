@@ -14,11 +14,11 @@ import shutil
 try:  # package mode
     from ..core.config import settings  # type: ignore
     from ..db.session import async_session  # type: ignore
-    from ..db.models.models import Download, DownloadStatus, Track, SearchCandidate, SearchProvider, LibraryFile  # type: ignore
+    from ..db.models.models import Download, DownloadStatus, Track, SearchCandidate, SearchProvider, LibraryFile, Playlist, PlaylistTrack, SourceProvider  # type: ignore
 except Exception:  # pragma: no cover
     from core.config import settings  # type: ignore
     from db.session import async_session  # type: ignore
-    from db.models.models import Download, DownloadStatus, Track, SearchCandidate, SearchProvider, LibraryFile  # type: ignore
+    from db.models.models import Download, DownloadStatus, Track, SearchCandidate, SearchProvider, LibraryFile, Playlist, PlaylistTrack, SourceProvider  # type: ignore
 
 
 @dataclass
@@ -34,6 +34,41 @@ def _safe_filename(text: str) -> str:
     text = re.sub(r"[\\/:*?\"<>|]+", "_", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:180]
+
+
+def _sanitize_component(name: str) -> str:
+    """Sanitize a single path component for Windows."""
+    s = re.sub(r"[\\/:*?\"<>|]+", "_", name or "")
+    s = re.sub(r"\s{2,}", " ", s)
+    return s.strip(" .")
+
+
+async def _resolve_storage_context(session, track_id: int) -> tuple[str, Optional[str]]:
+    """Return (provider_slug, playlist_name_or_None) for hierarchical storage.
+
+    Rule:
+    - If the track appears in any playlist, use that playlist's provider and name; only spotify keeps the playlist folder.
+    - Otherwise return ("other", None).
+    """
+    try:
+        from sqlalchemy import select as _select
+        res = await session.execute(
+            _select(Playlist.provider, Playlist.name)
+            .join(PlaylistTrack, Playlist.id == PlaylistTrack.playlist_id)
+            .where(PlaylistTrack.track_id == track_id)
+            .limit(1)
+        )
+        row = res.first()
+        if row:
+            provider: SourceProvider = row[0]
+            name: Optional[str] = row[1]
+            prov_slug = str(provider.value if hasattr(provider, 'value') else provider).lower()
+            if prov_slug == "spotify":
+                return prov_slug, name or None
+            return prov_slug, None
+    except Exception:
+        pass
+    return "other", None
 
 
 def _sha256_file(path: Path) -> str:
@@ -103,19 +138,27 @@ async def perform_download(download_id: int) -> DownloadOutcome:
         except Exception:
             prev_lf_path = None
 
-    # Determine target directory and filename
+    # Determine target directory and filename (hierarchical)
     # Allow runtime override via environment for tests; fallback to settings
     lib_dir_env = os.environ.get("LIBRARY_DIR")
     lib_dir = Path(lib_dir_env or settings.library_dir).resolve()
     await _ensure_dir(lib_dir)
-    base_name = _safe_filename(f"{track.artists} - {track.title}")
-    # Prefer mp3 container by default
+    # Storage context (provider/playlist)
+    async with async_session() as _s2:
+        prov_slug, playlist_name = await _resolve_storage_context(_s2, track.id)
+    artists_safe = _sanitize_component(track.artists or "Unknown Artist")
+    title_safe = _sanitize_component(track.title or "Unknown Title")
+    # Default extension preferred
     ext = ".mp3"
-    # Overwrite policy: if we have a previous library file for this track, target that path base; otherwise use default
+    # Build hierarchical path
+    if playlist_name:
+        out_path = lib_dir / _sanitize_component(prov_slug) / _sanitize_component(playlist_name) / f"{artists_safe} - {title_safe}{ext}"
+    else:
+        out_path = lib_dir / _sanitize_component(prov_slug) / f"{artists_safe} - {title_safe}{ext}"
+    # If we have a previous library file for this track, prefer overwriting that exact file (to avoid duplicates)
     if prev_lf_path is not None:
         out_path = prev_lf_path
-    else:
-        out_path = lib_dir / f"{base_name}{ext}"
+    await _ensure_dir(out_path.parent)
 
     # Fake mode
     if os.environ.get("DOWNLOAD_FAKE", "0") in {"1", "true", "TRUE", "True"}:

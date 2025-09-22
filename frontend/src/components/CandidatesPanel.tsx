@@ -28,6 +28,10 @@ export const CandidatesPanel: React.FC = () => {
   const load = React.useCallback(() => {
     if (selectedTrack == null) { setCandidates([]); return }
     const params = new URLSearchParams({ track_id: String(selectedTrack), sort, prefer_extended: String(ytPreferExtended) })
+    // Pass strict filter intent to the server so negatives are hidden there too
+    if (strict) {
+      params.set('min_score', String(MIN_SCORE))
+    }
     fetch('/api/v1/candidates/?' + params.toString())
       .then(r => r.ok ? r.json() : [])
       .then(async (d: Candidate[]) => {
@@ -49,7 +53,7 @@ export const CandidatesPanel: React.FC = () => {
         }
       })
       .catch(() => {})
-  }, [selectedTrack, sort, ytPreferExtended, getDisplayScore])
+  }, [selectedTrack, sort, ytPreferExtended, getDisplayScore, strict])
 
   React.useEffect(() => { load() }, [load])
 
@@ -57,7 +61,6 @@ export const CandidatesPanel: React.FC = () => {
     // No score limit when strict filter is unchecked
     if (!strict) return candidates
     const filtered = candidates.filter(c => c.chosen || getDisplayScore(c) >= MIN_SCORE)
-    if (filtered.length === 0 && candidates.length > 0) return candidates
     return filtered
   }, [candidates, strict, getDisplayScore])
 
