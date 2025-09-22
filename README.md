@@ -140,6 +140,7 @@ old/               # Legacy code kept for reference
 	- `persist` (bool, default true) persists top scored results as candidates.
 	- `limit` (optional int) overrides search limit.
 	Scoring blends text token overlap, duration proximity, extended mix bonus, and small penalties for missing tokens.
+ 	When prefer_extended is enabled, explicit "Original Mix" is also treated as an extended variant.
 - Single-source name/version (`backend/app/app_meta.py`) exposed via `/api/v1/info`.
 
 ### Cover images

@@ -54,7 +54,7 @@ class ScoredResult(YouTubeResult):
     score: float
 
 
-_EXTENDED_KEYWORDS = ["extended mix", "club mix", "extended", "club edit"]
+_EXTENDED_KEYWORDS = ["extended mix", "club mix", "extended", "club edit", "original mix"]
 # Only treat explicit Remix/Edit tags as version markers; a bare "mix" is too generic (e.g., DJ mix)
 _REMIX_KEYWORDS = ["remix", "edit"]
 
@@ -233,8 +233,8 @@ def _has_explicit_version_tag(title: str) -> tuple[bool, bool, bool]:
     # Regex for patterns like "(Extended Mix)", "- Extended Mix", "(John Doe Remix)", "- John Doe Remix"
     # Also allow simple "(Extended)" or "- Extended"
     ext_patterns = [
-        r"\((?:extended(?: mix)?|club (?:mix|edit))\)",
-        r"-\s*(?:extended(?: mix)?|club (?:mix|edit))\b",
+        r"\((?:extended(?: mix)?|club (?:mix|edit)|original mix)\)",
+        r"-\s*(?:extended(?: mix)?|club (?:mix|edit)|original mix)\b",
     ]
     remix_patterns = [
         r"\([^)]*?\b(?:remix|edit)\)",
@@ -272,13 +272,16 @@ def _build_search_queries(artists: str, title: str, prefer_extended: bool) -> Li
         if q2 and q2.lower() != raw_query.lower():
             queries.append(q2)
 
-    # 3) Prefer extended: add explicit extended mix suffix with hyphen pattern
+    # 3) Prefer extended: add explicit extended/original mix suffix with hyphen pattern
     if prefer_extended:
         title_l = (title or "").lower()
-        if not any(k in title_l for k in ["extended", "club mix", "extended mix", "club edit"]):
+        if not any(k in title_l for k in ["extended", "club mix", "extended mix", "club edit", "original mix"]):
             q3 = f"{artists} - {title} extended mix".strip()
             if q3 and q3.lower() not in {q.lower() for q in queries}:
                 queries.append(q3)
+            q4 = f"{artists} - {title} original mix".strip()
+            if q4 and q4.lower() not in {q.lower() for q in queries}:
+                queries.append(q4)
 
     # Deduplicate while preserving order
     seen_q: Set[str] = set()
@@ -401,9 +404,9 @@ def get_score_components(
     """
     # Identify extended/remix title early, it participates in text and duration components
     title_l = (result_title or "").lower()
-    # Determine if the title carries an explicit track version tag (extended/club/remix/edit)
+    # Determine if the title carries an explicit track version tag (extended/club/original mix/remix/edit)
     is_version_tag, is_explicit_extended, is_explicit_remix = _has_explicit_version_tag(result_title)
-    # Extended mode and bonuses apply ONLY to explicit Extended/Club variants, not Remix/Edit
+    # Extended mode and bonuses apply to explicit Extended/Club/Original Mix variants, not Remix/Edit
     is_extended_variant = bool(is_explicit_extended)
     is_remix_variant = bool(is_explicit_remix)
     text_sim = _text_similarity(

@@ -176,6 +176,10 @@ Pagination and early-stop behavior (added):
 - With youtube-search-python provider, native pagination is used; with yt-dlp, pagination is simulated by increasing the search limit.
 - On provider timeout, the search returns an empty result set (no fallback) unless YOUTUBE_SEARCH_FALLBACK_FAKE=1.
 
+Extended preference also targets "Original Mix"
+- When prefer_extended=true, explicit "Original Mix" is treated as an extended variant for scoring and duration heuristics (alongside Extended/Club Mix).
+- Query builder also tries "Artists - Title original mix" in addition to "extended mix" when the title does not already include such tags.
+
 **Validation Criteria:**
 1. API returns scored YouTube candidates for a given track
 2. UI exposes a toggle to prefer Extended/Club Mix
