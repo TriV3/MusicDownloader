@@ -125,7 +125,7 @@ export const TrackManager: React.FC = () => {
 
   const loadPlaylists = React.useCallback(async () => {
     try {
-      const r = await fetch('/api/v1/playlists/?provider=spotify&selected=true')
+      const r = await fetch('/api/v1/playlists/?selected=true')
       if (!r.ok) return
       const d = await r.json()
       setPlaylists(d.map((p: any) => ({ id: p.id, name: p.name })))

@@ -6,11 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
     from ...db.session import get_session  # type: ignore
-    from ...db.models.models import Track, TrackIdentity, SourceProvider  # type: ignore
+    from ...db.models.models import Track, TrackIdentity, SourceProvider, Playlist, PlaylistTrack  # type: ignore
     from ...utils.normalize import normalize_track  # type: ignore
 except Exception:  # pragma: no cover
     from db.session import get_session  # type: ignore
-    from db.models.models import Track, TrackIdentity, SourceProvider  # type: ignore
+    from db.models.models import Track, TrackIdentity, SourceProvider, Playlist, PlaylistTrack  # type: ignore
     from utils.normalize import normalize_track  # type: ignore
 
 router = APIRouter(prefix="/tracks/import", tags=["tracks"])
@@ -125,7 +125,32 @@ async def import_tracks_json(
         to_create.append(mapped)
 
     created_count = 0
+    others_playlist_id: Optional[int] = None
     if not dry_run:
+        # Ensure a manual 'Others' playlist exists and is selected so it appears in filters
+        pl_q = await session.execute(
+            select(Playlist).where(Playlist.provider == SourceProvider.manual, Playlist.name == "Others")
+        )
+        others = pl_q.scalars().first()
+        if others is None:
+            others = Playlist(
+                provider=SourceProvider.manual,
+                provider_playlist_id=f"manual:others",
+                name="Others",
+                description="Tracks imported manually without a playlist",
+                owner=None,
+                snapshot=None,
+                selected=True,
+            )
+            session.add(others)
+            await session.flush()
+        else:
+            # Make sure it's selected so UI sees it by default
+            if not getattr(others, "selected", False):
+                others.selected = True
+                await session.flush()
+        others_playlist_id = others.id
+
         for item in to_create:
             if item["duplicate"]:
                 continue
@@ -140,6 +165,14 @@ async def import_tracks_json(
             )
             session.add(identity)
             await session.flush()
+            # Link to Others playlist if available (avoid duplicates via unique constraint)
+            if others_playlist_id is not None:
+                try:
+                    session.add(PlaylistTrack(playlist_id=others_playlist_id, track_id=track.id, position=None))
+                    await session.flush()
+                except Exception:
+                    # Ignore if unique constraint violation occurs due to race or re-import
+                    pass
             created_count += 1
 
     return {

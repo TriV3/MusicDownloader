@@ -69,3 +69,7 @@ Downloads
 - Toggle "Include downloaded" to also show tracks that were already downloaded if you want to re-download them.
 - You can enqueue a download without typing numeric IDs: start typing a track title or artist in the search box and pick the result; the form will auto-fill the Track ID.
 - Optionally, you can provide a specific Candidate ID if you want to override the chosen one.
+
+Importing tracks (JSON)
+- Go to the Import page from the top navigation to upload a JSON file of tracks. Use the Dry Run to preview duplicates and validation errors before confirming.
+- Newly imported tracks that do not belong to any existing playlist are automatically added to a manual playlist named "Others". This playlist is set as selected so it appears in the playlist filter on the Tracks page, allowing you to quickly filter for those manual imports.

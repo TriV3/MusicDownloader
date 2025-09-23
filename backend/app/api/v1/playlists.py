@@ -155,15 +155,19 @@ async def playlists_stats(
         )
         other_res = await session.execute(other_stmt)
         total_o, downloaded_o = other_res.first() or (0, 0)
-        items.append({
-            "playlist_id": None,
-            "name": "Other",
-            "provider": "other",
-            "total_tracks": int(total_o or 0),
-            "downloaded_tracks": int(downloaded_o or 0),
-            "not_downloaded_tracks": max(0, int(total_o or 0) - int(downloaded_o or 0)),
-            "searched_not_found": 0,
-        })
+        total_o = int(total_o or 0)
+        downloaded_o = int(downloaded_o or 0)
+        # Only include the synthetic 'Other' bucket when it has at least one track
+        if total_o > 0:
+            items.append({
+                "playlist_id": None,
+                "name": "Other",
+                "provider": "other",
+                "total_tracks": total_o,
+                "downloaded_tracks": downloaded_o,
+                "not_downloaded_tracks": max(0, total_o - downloaded_o),
+                "searched_not_found": 0,
+            })
 
     return items
 

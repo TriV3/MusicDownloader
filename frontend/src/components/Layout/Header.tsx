@@ -39,6 +39,12 @@ export const Header: React.FC = () => {
             Tracks
           </Link>
           <Link 
+            to="/import" 
+            className={`nav-link ${isActive('/import') ? 'active' : ''}`}
+          >
+            Import
+          </Link>
+          <Link 
             to="/downloads" 
             className={`nav-link ${isActive('/downloads') ? 'active' : ''}`}
           >
