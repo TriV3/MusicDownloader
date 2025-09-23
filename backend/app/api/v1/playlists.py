@@ -582,8 +582,19 @@ async def spotify_sync_playlists(
                 # If snapshot fetch fails, fall back to full sync attempt (raise original later if track fetch fails)
                 remote_snapshot = None
 
+        # Skip only if snapshot unchanged AND the playlist already has links
+        # This avoids skipping the very first sync in cases where a snapshot was
+        # persisted during discovery but tracks were never ingested yet.
+        should_skip = False
         if pl.snapshot and remote_snapshot and pl.snapshot == remote_snapshot:
-            # No change; skip playlist
+            # Check if any PlaylistTrack rows already exist for this playlist
+            result_count = await session.execute(
+                select(func.count(PlaylistTrack.id)).where(PlaylistTrack.playlist_id == pl.id)
+            )
+            has_links = (result_count.scalar() or 0) > 0
+            should_skip = has_links
+
+        if should_skip:
             summaries.append({
                 "playlist_id": pl.id,
                 "provider_playlist_id": pl.provider_playlist_id,

@@ -35,7 +35,8 @@ async def test_import_creates_others_and_membership():
         assert r3.status_code == 200
         tracks = r3.json()
         assert len(tracks) >= 1
-        tid = tracks[-1]["id"]
+        # Choose the most recently created track (highest id)
+        tid = max(t["id"] for t in tracks)
 
         # Check playlist memberships endpoint
         r4 = await ac.post("/api/v1/playlists/memberships", json={"track_ids": [tid]})

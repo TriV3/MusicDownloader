@@ -83,6 +83,13 @@ def _is_probable_set(title: str, duration_sec: Optional[int], track_duration_ms:
         return True
     return False
 
+# Scoring weights (keep extended strictly greater than channel)
+EXTENDED_BONUS_WEIGHT: float = 0.35
+CHANNEL_BONUS_OFFICIAL_WEIGHT: float = 0.20  # vevo/official/topic
+CHANNEL_BONUS_EXACT_MATCH_WEIGHT: float = 0.08  # channel normalized equals artist normalized
+CHANNEL_BONUS_ARTIST_SUBSTR_WEIGHT: float = 0.05  # artist appears in channel name
+CHANNEL_BONUS_CAP: float = 0.30  # must be < EXTENDED_BONUS_WEIGHT
+
 
 def _normalize_for_tokens(s: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", " ", (s or "").lower()).strip()
@@ -247,35 +254,81 @@ def _has_explicit_version_tag(title: str) -> tuple[bool, bool, bool]:
 
 
 def _build_search_queries(artists: str, title: str, prefer_extended: bool) -> List[str]:
-    """Build YouTube search queries using the common "Artists - Title" pattern only.
+    """Build YouTube search queries.
 
-    Strategy:
-    1) "Artists - Title" (exact).
-    2) If multiple artists, also try "PrimaryArtist - Title".
-    3) If prefer_extended and title does not already indicate extended, add "Artists - Title extended mix".
-
-    We intentionally avoid space-only variants or title-only variants.
+    Strategy (in priority order):
+    1) "PrimaryArtist Title" (space variant) – compact and often matches official uploads.
+    2) "Artists Title" (space variant) when multiple artists.
+    3) "Artists - Title" (hyphen classic pattern).
+    4) "PrimaryArtist - Title" (hyphen with primary only) when multiple artists.
+    5) If a Remix editor is detected in the title (e.g., " - XYZ Remix" or "(XYZ Remix)"), also add
+       a simplified title+remixer query like "Title XYZ" and a generic "Title remix".
+    6) If prefer_extended and title does not already indicate extended, add explicit extended/original mix suffix
+       using both space and hyphen patterns: "Artists Title extended mix", "Artists - Title extended mix",
+       and original mix counterparts. De-dup preserving order.
     """
     norm = normalize_track(artists, title)
     primary = norm.primary_artist
     artists_list = _parse_artists(artists)
 
     queries: List[str] = []
-    # 1) Exact pattern with hyphen
+    # 1) Primary artist + title (space)
+    q_space_primary = f"{primary} {norm.clean_title}".strip()
+    if q_space_primary:
+        queries.append(q_space_primary)
+
+    # 2) All artists + title (space) when multiple
+    if len(artists_list) > 1:
+        q_space_all = f"{artists} {norm.clean_title}".strip()
+        if q_space_all and q_space_all.lower() not in {q.lower() for q in queries}:
+            queries.append(q_space_all)
+
+    # 3) All artists - title (hyphen)
     raw_query = f"{artists} - {title}".strip()
-    if raw_query:
+    if raw_query and raw_query.lower() not in {q.lower() for q in queries}:
         queries.append(raw_query)
 
-    # 2) Primary artist variant when multiple artists
+    # 4) Primary - title (hyphen) when multiple artists
     if len(artists_list) > 1:
-        q2 = f"{primary} - {title}".strip()
-        if q2 and q2.lower() != raw_query.lower():
-            queries.append(q2)
+        q_primary_hyphen = f"{primary} - {title}".strip()
+        if q_primary_hyphen and q_primary_hyphen.lower() not in {q.lower() for q in queries}:
+            queries.append(q_primary_hyphen)
 
-    # 3) Prefer extended: add explicit extended/original mix suffix with hyphen pattern
+    # 5) Remix editor simplified variant: try to extract remixer and add "Title Remixer" + "Title remix"
+    title_l = (title or "").lower()
+    remixer: Optional[str] = None
+    # Pattern: "Title - X Remix" or "Title - X Edit"
+    try:
+        import re as _re
+        m = _re.search(r"-\s*([^\-()]+?)\s+(?:remix|edit)\b", title, flags=_re.IGNORECASE)
+        if m:
+            remixer = m.group(1).strip()
+        else:
+            # Pattern: "Title (X Remix)"
+            m2 = _re.search(r"\(([^()]+?)\s+(?:remix|edit)\)\s*$", title, flags=_re.IGNORECASE)
+            if m2:
+                remixer = m2.group(1).strip()
+    except Exception:
+        remixer = None
+    if remixer:
+        simp = f"{norm.clean_title} {remixer}".strip()
+        if simp and simp.lower() not in {q.lower() for q in queries}:
+            queries.append(simp)
+        simp2 = f"{norm.clean_title} remix".strip()
+        if simp2 and simp2.lower() not in {q.lower() for q in queries}:
+            queries.append(simp2)
+
+    # 6) Prefer extended: add explicit extended/original mix suffix with space and hyphen patterns
     if prefer_extended:
-        title_l = (title or "").lower()
         if not any(k in title_l for k in ["extended", "club mix", "extended mix", "club edit", "original mix"]):
+            # space pattern
+            q3s = f"{artists} {norm.clean_title} extended mix".strip()
+            if q3s and q3s.lower() not in {q.lower() for q in queries}:
+                queries.append(q3s)
+            q4s = f"{artists} {norm.clean_title} original mix".strip()
+            if q4s and q4s.lower() not in {q.lower() for q in queries}:
+                queries.append(q4s)
+            # hyphen pattern
             q3 = f"{artists} - {title} extended mix".strip()
             if q3 and q3.lower() not in {q.lower() for q in queries}:
                 queries.append(q3)
@@ -299,7 +352,7 @@ def _extended_mix_bonus(title: str, prefer_extended: bool) -> float:
         return 0.0
     t = title.lower()
     # Stronger bonus for explicit Extended/Club/Remix variants when user prefers them
-    return 0.35 if any(k in t for k in (_EXTENDED_KEYWORDS + _REMIX_KEYWORDS)) else 0.0
+    return EXTENDED_BONUS_WEIGHT if any(k in t for k in (_EXTENDED_KEYWORDS + _REMIX_KEYWORDS)) else 0.0
 
 
 def _official_channel_bonus(channel: Optional[str], primary_artist: str) -> float:
@@ -308,7 +361,7 @@ def _official_channel_bonus(channel: Optional[str], primary_artist: str) -> floa
     Tiers:
     - +0.30 if channel name suggests official source (contains 'vevo', ' - topic', 'official').
     - +0.20 if channel name also matches the primary artist name (normalized, space-insensitive).
-    Caps at +0.50 total.
+    Caps at CHANNEL_BONUS_CAP total (which is intentionally less than EXTENDED_BONUS_WEIGHT).
     """
     if not channel:
         return 0.0
@@ -320,15 +373,15 @@ def _official_channel_bonus(channel: Optional[str], primary_artist: str) -> floa
     cn = _norm(c)
     an = _norm(primary_artist)
     base = 0.0
-    # Exact channel == artist name → treat as official source
+    # Exact channel == artist name → small bonus
     if an and cn == an:
-        base += 0.30
-    # Treat ' - Topic' and 'Release - Topic' as quasi-official uploads
+        base += CHANNEL_BONUS_EXACT_MATCH_WEIGHT
+    # Treat 'vevo', 'official', and ' - topic' as quasi-official uploads
     if ("vevo" in c) or ("official" in c) or (" - topic" in c) or ("release - topic" in c):
-        base += 0.30
+        base += CHANNEL_BONUS_OFFICIAL_WEIGHT
     if an and an in cn:
-        base += 0.20
-    return min(base, 0.50)
+        base += CHANNEL_BONUS_ARTIST_SUBSTR_WEIGHT
+    return min(base, CHANNEL_BONUS_CAP)
 
 
 def _text_similarity(norm_query: str, norm_title: str, prefer_extended_mode: bool = False) -> float:
@@ -449,10 +502,10 @@ def get_score_components(
             if raw > base_weight + 0.10:
                 raw = base_weight + 0.10
             duration_bonus = raw
-    # Award extended bonus only for explicit Extended/Club versions (not Remix/Edit, not DJ mixes)
+    # Award extended bonus only for explicit Extended/Club or remix/edit variants when prefer_extended
     ext_bonus = 0.0
-    if prefer_extended and is_extended_variant:
-        ext_bonus = 0.35
+    if prefer_extended and (is_extended_variant or is_remix_variant):
+        ext_bonus = EXTENDED_BONUS_WEIGHT
     ch_bonus = _official_channel_bonus(result_channel, primary_artist)
 
     # Token-based penalty (missing primary artist or tokens)
@@ -659,10 +712,10 @@ def search_youtube(
         except Exception:
             pass
         # Ensure visibility in console regardless of logging config
-        try:
-            print(f"[youtube_search] query: {query}")
-        except Exception:
-            pass
+        # try:
+        #     print(f"[youtube_search] query: {query}")
+        # except Exception:
+        #     pass
         raw_results = fake_results(query)
     else:
         queries = _build_search_queries(artists, title, prefer_extended=prefer_extended)
@@ -700,10 +753,10 @@ def search_youtube(
                 logger.info("YouTube search query: %s", q)
             except Exception:
                 pass
-            try:
-                print(f"[youtube_search] query: {q}")
-            except Exception:
-                pass
+            # try:
+            #     print(f"[youtube_search] query: {q}")
+            # except Exception:
+            #     pass
 
             if provider == "yts_python" and VideosSearch is not None:
                 # Native pagination with youtube-search-python
