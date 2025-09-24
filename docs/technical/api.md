@@ -46,6 +46,12 @@ Current endpoints (v1)
   - GET `/api/v1/library/files/{id}`
     - GET `/api/v1/library/files/{id}/download` — Download the audio file via HTTP
     - POST `/api/v1/library/files/{id}/reveal` — On Windows, open Explorer and select the file
+    - Maintenance (Reindex):
+      - POST `/api/v1/library/files/scan` — Disk → DB reindex. Scans the library directory and upserts `LibraryFile` for files matching existing Tracks by normalized `(artists, title)`. Returns counts and `skipped_files` (unmatched).
+        - Query params: `analyze_metadata` (default true, uses ffprobe to fill missing durations), `compute_checksum` (false), `max_files` (default 2000)
+      - POST `/api/v1/library/files/reindex_from_tracks` — Tracks → Disk reverse reindex. Builds an in-memory file index, then verifies every Track in DB. Optionally creates/updates `LibraryFile` links.
+        - Query params: `link` (default true), `compute_checksum` (false)
+        - Response includes: `files_indexed`, `tracks_checked`, `tracks_found`, `tracks_missing`, `linked_added`, `linked_updated`, `missing_samples` (up to 20)
 - OAuth (generic):
   - GET `/api/v1/oauth/tokens`
   - POST `/api/v1/oauth/tokens`

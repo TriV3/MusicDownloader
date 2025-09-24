@@ -439,6 +439,11 @@ Multi-playlist replication (additional behavior)
 1. Image builds locally for amd64 (and arm64 if targeted)
 2. Container starts and serves API and SPA
 
+Implementation (completed):
+- Added a multi-stage `Dockerfile` with three stages: `frontend-builder` (Vite build), `backend-builder` (pip deps in a venv), and `runtime` (python:3.11-slim + ffmpeg).
+- The runtime image copies the built SPA to `backend/app/static` and starts `uvicorn backend.app.main:app` on port 8000.
+- `.dockerignore` excludes venvs, node_modules, local DB, library, and editor files to keep contexts small.
+
 ### Step 5.2: docker-compose and Volumes
 - Compose example with volumes for library (`/music`) and config (`/config`)
 - Environment variables for SECRET_KEY, Spotify, TZ, PUID/PGID

@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Venvs
+.venv/
+venv/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Local data
+music.db
+library/
+backend/.env
+.env
+old/

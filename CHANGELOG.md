@@ -9,6 +9,11 @@ Versioning scheme:
 Unreleased
 - Planning and work in progress.
 
+0.5.1 — Phase 5: Dockerfile and Multi-Stage Build (Step 5.1)
+- Added multi-stage Dockerfile: builds frontend with Node 20, installs backend Python deps in a venv, and assembles a slim runtime with ffmpeg.
+- Added .dockerignore to reduce build context and exclude local data.
+- README updated with docker build/run instructions.
+
 0.4.1 — Phase 4: Candidate Scoring Heuristics (Step 4.1)
 - Backend: Enhanced YouTube scoring with fuzzy token match, extended-aware duration proximity, official channel bonuses, and keyword penalties (lyrics/live/cover/karaoke; mild for audio-only).
 - API: Candidate responses include a `score_breakdown` (Text/Duration/Channel/Extended/Penalty, Total).

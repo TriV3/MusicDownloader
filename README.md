@@ -101,6 +101,31 @@ pytest -q
 
 The test suite uses a shared in-memory SQLite database and runs FastAPI startup/shutdown once per session to auto-create tables.
 
+## Docker
+
+Build the multi-stage image (includes the built React app and Python deps):
+
+```
+docker build -t music-downloader:0.5.1 .
+```
+
+Run the container exposing port 8000. Mount your config and music library to persist data:
+
+```
+docker run --rm -p 8000:8000 \
+	-e SECRET_KEY=change_me_please \
+	-e TZ=Europe/Paris \
+	-v %CD%\library:/app/library \
+	-v %CD%\backend\.env:/app/backend/.env:ro \
+	--name music_downloader \
+	music-downloader:0.5.1
+```
+
+Notes:
+- The image contains ffmpeg and runs uvicorn serving both the API and the built SPA at `/`.
+- Override `LIBRARY_DIR` if you mount to a different path; default is `/app/library` inside the container.
+- You can also provide environment variables via a file and `--env-file`.
+
 ## In‑App Audio Player
 
 - Stream endpoint: `GET /api/v1/library/files/{id}/stream` with HTTP Range (206), ETag/Last-Modified, and correct audio MIME.
