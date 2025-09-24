@@ -151,7 +151,13 @@ export const DownloadsPage: React.FC = () => {
     if (r.ok) {
       try {
         const data = await r.json()
-        alert(`Scan completed\nDirectory: ${data.directory}\nScanned: ${data.scanned}\nMatched: ${data.matched}\nAdded: ${data.added}\nUpdated: ${data.updated}\nSkipped: ${data.skipped}`)
+        let msg = `Scan completed\nDirectory: ${data.directory}\nScanned: ${data.scanned}\nMatched: ${data.matched}\nAdded: ${data.added}\nUpdated: ${data.updated}\nSkipped: ${data.skipped}`
+        if (Array.isArray(data.skipped_files) && data.skipped_files.length > 0) {
+          const list = data.skipped_files.slice(0, 20).join('\n - ')
+          const more = data.skipped_files.length > 20 ? `\n(+ ${data.skipped_files.length - 20} more…)` : ''
+          msg += `\n\nSkipped files:\n - ${list}${more}`
+        }
+        alert(msg)
       } catch {}
       loadLibrary()
       window.dispatchEvent(new CustomEvent('library:changed'))

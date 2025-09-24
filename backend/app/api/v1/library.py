@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -14,6 +15,7 @@ import os
 from email.utils import formatdate
 from datetime import datetime
 from typing import AsyncIterator, Optional
+from typing import Tuple, Dict, List
 
 try:
     from ...utils.http_range import parse_http_range, build_content_range_header, pick_audio_mime_from_path  # type: ignore
@@ -286,10 +288,16 @@ def _is_audio_file(path: Path) -> bool:
 
 async def _infer_track_id_from_filename(session: AsyncSession, filename: str) -> Optional[int]:
     name = Path(filename).stem
+    # Accept unicode dash variants between artists and title
+    # Normalize to a simple hyphen splitter
+    name_norm = name.replace("–", "-").replace("—", "-")
     # Expect pattern: "Artists - Title"
-    if " - " not in name:
+    if " - " not in name_norm and "-" in name_norm:
+        # Ensure there's spacing for robustness
+        name_norm = re.sub(r"\s*-\s*", " - ", name_norm)
+    if " - " not in name_norm:
         return None
-    artists, title = name.split(" - ", 1)
+    artists, title = name_norm.split(" - ", 1)
     artists = artists.strip()
     title = title.strip()
     if not artists or not title:
@@ -305,11 +313,34 @@ async def _infer_track_id_from_filename(session: AsyncSession, filename: str) ->
     return t.id if t else None
 
 
+def _normalized_key_from_filename(filename: str) -> Optional[Tuple[str, str]]:
+    """Parse a filename of the form 'Artists - Title.ext' (accepting unicode dashes)
+    and return (normalized_artists, normalized_title).
+    """
+    name = Path(filename).stem
+    name_norm = name.replace("–", "-").replace("—", "-")
+    if " - " not in name_norm and "-" in name_norm:
+        name_norm = re.sub(r"\s*-\s*", " - ", name_norm)
+    if " - " not in name_norm:
+        return None
+    artists, title = name_norm.split(" - ", 1)
+    artists = artists.strip()
+    title = title.strip()
+    if not artists or not title:
+        return None
+    norm = normalize_track(artists, title)
+    return (norm.normalized_artists, norm.normalized_title)
+
+
 @router.post("/scan", tags=["library"], summary="Scan library directory and upsert LibraryFile entries")
 async def scan_library(
     session: AsyncSession = Depends(get_session),
     compute_checksum: bool = Query(False, description="Compute checksum_sha256 (slower)"),
     max_files: int = Query(2000, ge=1, le=10000),
+    analyze_metadata: bool = Query(
+        True,
+        description="When true, attempt to analyze audio metadata (duration) using ffprobe if Track.duration_ms is missing."
+    ),
 ):
     """Walk the configured library directory and upsert LibraryFile rows for files that match an existing Track.
 
@@ -333,6 +364,7 @@ async def scan_library(
     added = 0
     updated = 0
     skipped = 0
+    skipped_files: list[str] = []
 
     # Walk directory
     for root, _, files in os.walk(lib_dir):
@@ -346,6 +378,12 @@ async def scan_library(
             track_id = await _infer_track_id_from_filename(session, p.name)
             if not track_id:
                 skipped += 1
+                try:
+                    # Provide a relative path for readability in UI
+                    rel = str(p.resolve().relative_to(lib_dir))
+                except Exception:
+                    rel = str(p)
+                skipped_files.append(rel)
                 continue
             matched += 1
             try:
@@ -367,6 +405,45 @@ async def scan_library(
                             h.update(chunk)
                     return h.hexdigest()
                 checksum = _sha256_file(p)
+
+            # Optionally analyze media metadata to backfill Track.duration_ms when missing
+            if analyze_metadata:
+                try:
+                    from sqlalchemy import select as _select
+                    # Fetch track to check/update duration
+                    t_res = await session.execute(_select(Track).where(Track.id == track_id))
+                    t = t_res.scalars().first()
+                    if t and (t.duration_ms is None or t.duration_ms == 0):
+                        # Run ffprobe (available in Docker image; optional on dev machines)
+                        import subprocess, json
+                        cmd = [
+                            "ffprobe", "-v", "error", "-select_streams", "a:0",
+                            "-show_entries", "format=duration", "-of", "json", str(p)
+                        ]
+                        try:
+                            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                            if proc.returncode == 0 and proc.stdout:
+                                data = json.loads(proc.stdout)
+                                # ffprobe might return duration under format.duration (string)
+                                dur = None
+                                if isinstance(data, dict):
+                                    fmt = data.get("format") or {}
+                                    d = fmt.get("duration")
+                                    if isinstance(d, str):
+                                        try:
+                                            dur = float(d)
+                                        except Exception:
+                                            dur = None
+                                if dur and dur > 0:
+                                    t.duration_ms = int(dur * 1000)
+                                    # Flush to persist update alongside LibraryFile upserts
+                                    await session.flush()
+                        except Exception:
+                            # Ignore ffprobe failures; proceed without duration
+                            pass
+                except Exception:
+                    # If model imports fail in alternate run modes, skip metadata.
+                    pass
 
             res = await session.execute(_select(LibraryFile).where(LibraryFile.filepath == str(p)))
             lf = res.scalars().first()
@@ -398,6 +475,130 @@ async def scan_library(
         "added": added,
         "updated": updated,
         "skipped": skipped,
+        "skipped_files": skipped_files,
+    }
+
+
+@router.post("/reindex_from_tracks", tags=["library"], summary="Verify DB tracks against library and upsert LibraryFile entries")
+async def reindex_from_tracks(
+    session: AsyncSession = Depends(get_session),
+    link: bool = Query(True, description="When true, create/update LibraryFile rows for found files."),
+    compute_checksum: bool = Query(False, description="Compute checksum_sha256 for newly linked files (slower)"),
+):
+    """Reverse reindex: Build an index of files on disk by normalized (artists, title),
+    then iterate DB Tracks to check presence and optionally (link) upsert LibraryFile entries.
+
+    Returns summary with found/missing counts and a sample of missing tracks.
+    """
+    try:
+        from ...db.models.models import LibraryFile  # type: ignore
+        from sqlalchemy import select as _select
+    except Exception:  # pragma: no cover
+        from db.models.models import LibraryFile  # type: ignore
+        from sqlalchemy import select as _select
+
+    lib_dir = Path(os.environ.get("LIBRARY_DIR") or settings.library_dir).resolve()
+    if not lib_dir.exists() or not lib_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Library directory not found: {lib_dir}")
+
+    # Build index of files by normalized key
+    file_index: Dict[Tuple[str, str], List[Path]] = {}
+    total_files = 0
+    for root, _, files in os.walk(lib_dir):
+        for fn in files:
+            p = Path(root) / fn
+            if not _is_audio_file(p):
+                continue
+            total_files += 1
+            key = _normalized_key_from_filename(p.name)
+            if not key:
+                continue
+            file_index.setdefault(key, []).append(p)
+
+    # Fetch all tracks
+    t_res = await session.execute(select(Track))
+    tracks = t_res.scalars().all()
+
+    checked = 0
+    found = 0
+    missing = 0
+    linked_added = 0
+    linked_updated = 0
+    missing_samples: List[dict] = []
+
+    for t in tracks:
+        checked += 1
+        key = (t.normalized_artists, t.normalized_title)
+        candidates = file_index.get(key) or []
+        if not candidates:
+            missing += 1
+            # Collect small sample (up to 20) for UI
+            if len(missing_samples) < 20:
+                missing_samples.append({
+                    "id": t.id,
+                    "artists": t.artists,
+                    "title": t.title,
+                    "normalized_artists": t.normalized_artists,
+                    "normalized_title": t.normalized_title,
+                })
+            continue
+        found += 1
+        if not link:
+            continue
+        # Link the first candidate path; users can rescan for others
+        p = candidates[0]
+        try:
+            st = p.stat()
+            mtime = datetime.utcfromtimestamp(st.st_mtime)
+            size = int(st.st_size)
+        except Exception:
+            mtime = datetime.utcnow()
+            size = 0
+
+        checksum = None
+        if compute_checksum:
+            import hashlib
+            h = hashlib.sha256()
+            with p.open("rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                    h.update(chunk)
+            checksum = h.hexdigest()
+
+        # Upsert LibraryFile by filepath
+        res = await session.execute(_select(LibraryFile).where(LibraryFile.filepath == str(p)))
+        lf = res.scalars().first()
+        if lf:
+            # Update linkage/metadata
+            lf.track_id = t.id
+            lf.file_mtime = mtime
+            lf.file_size = size
+            if compute_checksum:
+                lf.checksum_sha256 = checksum
+            lf.exists = True
+            linked_updated += 1
+        else:
+            lf = LibraryFile(
+                track_id=t.id,
+                filepath=str(p),
+                file_mtime=mtime,
+                file_size=size,
+                checksum_sha256=checksum,
+                exists=True,
+            )
+            session.add(lf)
+            linked_added += 1
+
+    await session.flush()
+    return {
+        "ok": True,
+        "directory": str(lib_dir),
+        "files_indexed": total_files,
+        "tracks_checked": checked,
+        "tracks_found": found,
+        "tracks_missing": missing,
+        "linked_added": linked_added,
+        "linked_updated": linked_updated,
+        "missing_samples": missing_samples,
     }
 
 

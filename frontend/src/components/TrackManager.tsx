@@ -219,6 +219,60 @@ export const TrackManager: React.FC = () => {
     }
   }
 
+  const reindexLibrary = async () => {
+    // Trigger server-side scan and metadata analysis to link files back to tracks
+    try {
+      const r = await fetch('/api/v1/library/files/scan', { method: 'POST' })
+      if (r.ok) {
+        try {
+          const data = await r.json()
+          let msg = `Library reindex completed\nDirectory: ${data.directory}\nScanned: ${data.scanned}\nMatched: ${data.matched}\nAdded: ${data.added}\nUpdated: ${data.updated}\nSkipped: ${data.skipped}`
+          if (Array.isArray(data.skipped_files) && data.skipped_files.length > 0) {
+            const list = data.skipped_files.slice(0, 20).join('\n - ')
+            const more = data.skipped_files.length > 20 ? `\n(+ ${data.skipped_files.length - 20} more…)` : ''
+            msg += `\n\nSkipped files:\n - ${list}${more}`
+          }
+          alert(msg)
+        } catch {}
+        // Refresh UI flags and track list
+        loadTracks(); loadLibraryFlags()
+        window.dispatchEvent(new CustomEvent('library:changed'))
+      } else {
+        const t = await r.text()
+        alert('Reindex failed: ' + r.status + (t ? ('\n' + t) : ''))
+      }
+    } catch (e) {
+      console.error('Reindex error', e)
+    }
+  }
+
+  const reverseReindex = async () => {
+    // Trigger reverse reindex: verify DB tracks against files on disk and link LibraryFile rows
+    try {
+      const r = await fetch('/api/v1/library/files/reindex_from_tracks', { method: 'POST' })
+      if (r.ok) {
+        try {
+          const data = await r.json()
+          let msg = `Reverse reindex completed\nDirectory: ${data.directory}\nFiles indexed: ${data.files_indexed}\nTracks checked: ${data.tracks_checked}\nTracks found: ${data.tracks_found}\nTracks missing: ${data.tracks_missing}\nLinked added: ${data.linked_added}\nLinked updated: ${data.linked_updated}`
+          if (Array.isArray(data.missing_samples) && data.missing_samples.length > 0) {
+            const list = data.missing_samples.slice(0, 10).map((m: any) => `#${m.id} ${m.artists} — ${m.title}`).join('\n - ')
+            const more = data.missing_samples.length > 10 ? `\n(+ ${data.missing_samples.length - 10} more…)` : ''
+            msg += `\n\nMissing samples:\n - ${list}${more}`
+          }
+          alert(msg)
+        } catch {}
+        // Refresh UI flags and track list
+        loadTracks(); loadLibraryFlags()
+        window.dispatchEvent(new CustomEvent('library:changed'))
+      } else {
+        const t = await r.text()
+        alert('Reverse reindex failed: ' + r.status + (t ? ('\n' + t) : ''))
+      }
+    } catch (e) {
+      console.error('Reverse reindex error', e)
+    }
+  }
+
   const handlePlayTrack = async (track: TrackRead) => {
     // Check if track is already playing, toggle if so
     if (currentTrack?.id === track.id) {
@@ -257,7 +311,9 @@ export const TrackManager: React.FC = () => {
         <input placeholder='Artists' value={rawArtists} onChange={e => setRawArtists(e.target.value)} style={{ flex: 1 }} />
         <input placeholder='Title' value={rawTitle} onChange={e => setRawTitle(e.target.value)} style={{ flex: 1 }} />
         <button disabled={!rawArtists || !rawTitle || loading} onClick={create}>Create</button>
-        <button onClick={() => { loadTracks(); loadLibraryFlags() }} disabled={reloading}>{reloading ? 'Refreshing…' : 'Refresh'}</button>
+    <button onClick={() => { loadTracks(); loadLibraryFlags() }} disabled={reloading}>{reloading ? 'Refreshing…' : 'Refresh'}</button>
+    <button onClick={reindexLibrary} title="Disk → DB: Scan the library folder and link files to existing tracks; also updates missing durations using ffprobe when available">Reindex Library (Disk → DB)</button>
+    <button onClick={reverseReindex} title="Tracks → Disk: Verify tracks in DB against files on disk and link missing LibraryFile entries">Reverse Reindex (Tracks → Disk)</button>
       </div>
       {preview && (
         <div style={{ marginBottom: 12, fontSize: 13, fontFamily: 'var(--font-mono)', background: 'var(--bg-secondary)', padding: 8, borderRadius: 'var(--radius-sm)' }}>

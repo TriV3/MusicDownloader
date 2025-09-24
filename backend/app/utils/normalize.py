@@ -31,7 +31,48 @@ _FEAT_RE = re.compile(
 )
 
 _PARENS_CONTENT_RE = re.compile(r"\([^)]*\)")
+# Match a trailing dash and any following descriptor (handles -, –, —)
 _DASH_SUFFIX_RE = re.compile(r"\s*[\-–—]\s*[^\-–—()]+$")
+
+
+def _normalize_dash_variants(text: str) -> str:
+    """Replace unicode dash variants with a simple ASCII hyphen.
+
+    Also normalizes surrounding spaces to single spaces.
+    """
+    # Replace en/em dashes with a plain hyphen; keep existing spacing to avoid breaking names like 'Jay-Z'
+    text = text.replace("–", "-").replace("—", "-")
+    # Collapse remaining whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _normalize_artist_separators(artists: str) -> str:
+    """Unify common collaboration separators to a canonical form.
+
+    Rules:
+    - Map 'x', '×', '+', '/', 'and', 'with' (case-insensitive) to '&'
+    - Keep existing ',' and '&' as-is
+    - Collapse duplicate separators and extra spaces
+    """
+    s = artists
+    # First normalize dash variants (rare inside artists) and spacing consistently
+    s = _normalize_dash_variants(s)
+    # Replace various separators with ampersand
+    s = re.sub(r"(?i)\s*[x×]\s*", " & ", s)
+    s = re.sub(r"\s*\+\s*", " & ", s)
+    s = re.sub(r"\s*/\s*", " & ", s)
+    s = re.sub(r"(?i)\s*\band\b\s*", " & ", s)
+    s = re.sub(r"(?i)\s*\bwith\b\s*", " & ", s)
+    # Collapse multiple separators
+    s = re.sub(r"\s*&\s*&\s*", " & ", s)
+    s = re.sub(r"\s*,\s*,\s*", ", ", s)
+    # Normalize spaces around comma and ampersand
+    s = re.sub(r"\s*,\s*", ", ", s)
+    s = re.sub(r"\s*&\s*", " & ", s)
+    # Collapse whitespace
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 
 def _strip_accents(text: str) -> str:
@@ -75,6 +116,10 @@ def normalize_track(artists: str, title: str) -> NormalizedTrack:
     orig_artists = artists or ""
     orig_title = title or ""
 
+    # Replace unicode dash variants and normalize spacing (helps both artists and title)
+    orig_artists = _normalize_artist_separators(orig_artists)
+    orig_title = _normalize_dash_variants(orig_title)
+
     # Remove featured mentions from artists and title
     artists_wo_feat = _FEAT_RE.sub("", orig_artists)
     title_wo_feat = _FEAT_RE.sub("", orig_title)
@@ -97,6 +142,8 @@ def normalize_track(artists: str, title: str) -> NormalizedTrack:
     title_no_accents = _strip_accents(title_base)
 
     # Cleanup punctuation/spacing and normalize case
+    # Apply separator normalization on the accent-stripped artists once more to ensure symbols survived
+    artists_no_accents = _normalize_artist_separators(artists_no_accents)
     clean_artists = _clean_punctuation(artists_no_accents)
     clean_title = _clean_punctuation(title_no_accents)
 
