@@ -40,17 +40,21 @@ elseif ($PushOnly) {
 }
 
 $imageRef = "${RegistryHost}/${ImageName}:${ImageVersion}"
+$latestRef = "${RegistryHost}/${ImageName}:latest"
 
 if ($doBuild) {
   Write-Host "[build] Building $imageRef (yt-dlp $YtDlpVersion)" -ForegroundColor Cyan
   docker build `
     --build-arg YT_DLP_VERSION=$YtDlpVersion `
-    -t $imageRef .
+    -t $imageRef `
+    -t $latestRef .
 }
 
 if ($doPush) {
   Write-Host "[push] Pushing $imageRef" -ForegroundColor Cyan
   docker push $imageRef
+  Write-Host "[push] Pushing $latestRef" -ForegroundColor Cyan
+  docker push $latestRef
 }
 
 Write-Host "Done." -ForegroundColor Green

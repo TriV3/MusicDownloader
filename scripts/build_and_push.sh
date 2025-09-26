@@ -48,16 +48,22 @@ USAGE
   shift
 done
 
+IMAGE_REF="${REGISTRY_HOST}/${IMAGE_NAME}:${IMAGE_VERSION}"
+LATEST_REF="${REGISTRY_HOST}/${IMAGE_NAME}:latest"
+
 if [ "$DO_BUILD" = true ]; then
   echo "[build] Building ${IMAGE_REF} (yt-dlp ${YT_DLP_VERSION})"
   docker build \
     --build-arg YT_DLP_VERSION="${YT_DLP_VERSION}" \
-    -t "${IMAGE_REF}" .
+    -t "${IMAGE_REF}" \
+    -t "${LATEST_REF}" .
 fi
 
 if [ "$DO_PUSH" = true ]; then
   echo "[push] Pushing ${IMAGE_REF}"
   docker push "${IMAGE_REF}"
+  echo "[push] Pushing ${LATEST_REF}"
+  docker push "${LATEST_REF}"
 fi
 
 echo "Done."
