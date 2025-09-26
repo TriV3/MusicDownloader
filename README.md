@@ -92,6 +92,10 @@ Frontend UX:
 
 Install `yt-dlp` locally (e.g., `pip install yt-dlp`) for real searches; it's not yet pinned in `backend/requirements.txt` until download steps.
 
+## Versioning
+
+The repository keeps a single release number in the root `VERSION` file. The FastAPI metadata (`backend/app/app_meta.py`), helper scripts, and VS Code tasks all read this file automatically. When you bump the version, update `VERSION` once and every consumer and build artifact will pick it up.
+
 ## Testing
 
 From the `backend/` folder (or project root with the venv activated):
@@ -103,28 +107,185 @@ The test suite uses a shared in-memory SQLite database and runs FastAPI startup/
 
 ## Docker
 
-Build the multi-stage image (includes the built React app and Python deps):
+Build the multi-stage image (includes the built React app and Python deps). Both snippets read the tag from the shared `VERSION` file.
+
+PowerShell:
 
 ```
-docker build -t music-downloader:0.5.1 .
+$tag = Get-Content VERSION
+docker build -t music-downloader:$tag .
+```
+
+Git Bash / WSL / Linux:
+
+```
+TAG=$(cat VERSION)
+docker build -t music-downloader:${TAG} .
 ```
 
 Run the container exposing port 8000. Mount your config and music library to persist data:
 
+PowerShell:
+
 ```
+$tag = Get-Content VERSION
+docker run --rm -p 8000:8000 `
+	-e SECRET_KEY=change_me_please `
+	-e TZ=Europe/Paris `
+	-v ${PWD}\library:/app/library `
+	-v ${PWD}\backend\.env:/app/backend/.env:ro `
+	--name music_downloader `
+	music-downloader:$tag
+```
+
+Git Bash / WSL / Linux:
+
+```
+TAG=$(cat VERSION)
 docker run --rm -p 8000:8000 \
 	-e SECRET_KEY=change_me_please \
 	-e TZ=Europe/Paris \
-	-v %CD%\library:/app/library \
-	-v %CD%\backend\.env:/app/backend/.env:ro \
+	-v "${PWD}/library:/app/library" \
+	-v "${PWD}/backend/.env:/app/backend/.env:ro" \
 	--name music_downloader \
-	music-downloader:0.5.1
+	music-downloader:${TAG}
 ```
 
 Notes:
 - The image contains ffmpeg and runs uvicorn serving both the API and the built SPA at `/`.
 - Override `LIBRARY_DIR` if you mount to a different path; default is `/app/library` inside the container.
 - You can also provide environment variables via a file and `--env-file`.
+
+### docker-compose (Step 5.2)
+
+An example `docker-compose.yml` is included for persistent deployment with two named volumes:
+
+- `music_library` mounted at `/music` for all downloaded audio and replicated playlist folders.
+- `config_data` mounted at `/config` for the SQLite database (`music.db`), an optional `.env`, and future logs/settings.
+
+Default environment variables (override in an `.env` file alongside the compose file or via your orchestrator):
+
+```
+SECRET_KEY=change_me_please
+DATABASE_URL=sqlite+aiosqlite:////config/music.db
+LIBRARY_DIR=/music
+TZ=UTC
+PUID=1000
+PGID=1000
+APP_LOG_LEVEL=INFO
+YT_DLP_BIN=/opt/venv/bin/yt-dlp
+FFMPEG_BIN=/usr/bin/ffmpeg
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
+SPOTIFY_REDIRECT_URI=
+```
+
+Start with docker compose v2 syntax:
+
+```
+docker compose up -d
+```
+
+This will pull (or build) the image, create the volumes, and expose the API at http://localhost:8000.
+
+Persistence validation:
+1. Downloaded tracks appear under the `music_library` volume (on host: see `docker volume inspect music_downloader_music_library` for the mount path or bind mount explicitly if preferred).
+2. The SQLite database `music.db` and (optionally) `/config/.env` persist under `config_data` volume. You can exec into the container and list `/config` to confirm.
+
+To customize user/group ownership on a NAS (e.g., Synology), provide `PUID` and `PGID` and (optionally) add a `user: "${PUID}:${PGID}"` line under the service. Ensure the host paths or volumes are writable by that UID/GID.
+
+Healthcheck:
+- The compose file defines a healthcheck querying `/api/v1/health`; `docker ps` will show `healthy` after successful startup.
+
+Included binaries:
+- The image bundles `ffmpeg` (installed via apt) and `yt-dlp` (installed via pip in the virtual environment). They are on PATH; override with `YT_DLP_BIN` / `FFMPEG_BIN` if you bind-mount custom versions.
+- By default the container forces yt-dlp to use the Android client (`DOWNLOAD_YTDLP_EXTRACTOR_ARGS=youtube:player_client=android`). This circumvents recent YouTube SABR-only responses that otherwise return "Only images are available" errors. Set the variable to `none` to disable or override it with a different client string as new yt-dlp guidance emerges.
+
+### yt-dlp version pin
+
+The Docker build now pins `yt-dlp` via a build argument:
+
+```
+ARG YT_DLP_VERSION=2025.09.05
+```
+
+To rebuild with a different version:
+
+```
+docker compose build --build-arg YT_DLP_VERSION=2025.09.05 music_downloader
+docker compose up -d
+```
+
+The running container logs the detected version at startup `(yt-dlp version=...)` for auditability. Locally, install the same version to keep behavior consistent:
+
+```
+pip install --upgrade yt-dlp==2025.09.05
+```
+
+## Private Registry Deployment
+
+To build and push the image to a private registry (e.g., `192.168.2.5:5000`):
+
+### 1. Ensure registry trust / insecure (if HTTP)
+On each Docker host (daemon.json):
+```
+{
+	"insecure-registries": ["192.168.2.5:5000"]
+}
+```
+Restart Docker.
+
+### 2. Environment variables (optional `.env` at repo root)
+```
+REGISTRY_HOST=192.168.2.5:5000
+IMAGE_NAME=music-downloader
+# Windows PowerShell:  IMAGE_VERSION=$(Get-Content VERSION)
+# Bash / WSL:         IMAGE_VERSION=$(cat VERSION)
+YT_DLP_VERSION=2025.09.05
+DOWNLOAD_YTDLP_EXTRACTOR_ARGS=youtube:player_client=android
+```
+
+### 3. Build & Push (VS Code Tasks / Scripts)
+
+VS Code tasks (Terminal > Run Task):
+1. Docker: Build image
+2. Docker: Push image
+3. Docker: Build & Push (single step)
+
+These tasks invoke `powershell.exe`, so they run out of the box on Windows. On macOS/Linux (or if you prefer another shell), use the scripts below instead.
+
+Scripts default to the version in the `VERSION` file:
+
+```
+# Linux / macOS
+./scripts/build_and_push.sh
+
+# Windows PowerShell
+pwsh ./scripts/build_and_push.ps1
+```
+
+Override the tag explicitly when needed:
+
+```
+# Linux / macOS
+IMAGE_VERSION=dev-test ./scripts/build_and_push.sh
+
+# Windows PowerShell
+pwsh ./scripts/build_and_push.ps1 -ImageVersion dev-test
+```
+
+### 4. Deploy with docker compose
+`docker-compose.yml` uses:
+```
+image: ${REGISTRY_HOST}/${IMAGE_NAME}:${IMAGE_VERSION}
+```
+Update `.env` then:
+```
+docker compose pull
+docker compose up -d
+```
+
+If you rebuild locally with the same tag, run `docker compose up -d --force-recreate`.
 
 ## In‑App Audio Player
 

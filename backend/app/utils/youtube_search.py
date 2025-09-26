@@ -187,9 +187,17 @@ def _run_yts_python_search(query: str, limit: int = 10) -> List[YouTubeResult]:
         logger.debug("youtubesearchpython raw results: %d", len(results))
     return results
 
+def _resolve_provider() -> str:
+    provider = os.environ.get("YOUTUBE_SEARCH_PROVIDER")
+    if provider:
+        return provider.lower()
+    # Default remains youtube-search-python to honor existing behavior.
+    return "yts_python"
+
+
 def _provider_search(query: str, limit: int) -> List[YouTubeResult]:
-    """Dispatch to selected search provider (default: yts_python)."""
-    provider = os.environ.get("YOUTUBE_SEARCH_PROVIDER", "yts_python").lower()
+    """Dispatch to selected search provider."""
+    provider = _resolve_provider()
     if provider == "yts_python":
         return _run_yts_python_search(query, limit=limit)
     return _run_yt_dlp_search(query, limit=limit)
@@ -743,7 +751,7 @@ def search_youtube(
         found_high_score = False
         any_timeout = False
 
-        provider = os.environ.get("YOUTUBE_SEARCH_PROVIDER", "yts_python").lower()
+        provider = _resolve_provider()
         ysp_language = os.environ.get("YTSP_LANGUAGE")
         ysp_region = os.environ.get("YTSP_REGION")
 

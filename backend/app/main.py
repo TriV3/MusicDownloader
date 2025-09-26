@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 import logging
 import os
+import subprocess
+import shutil
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
@@ -255,6 +257,15 @@ async def on_startup():
     try:
         from .core.config import settings as _settings  # type: ignore
         print(f"[startup] LIBRARY_DIR={_settings.library_dir}")
+    except Exception:
+        pass
+
+    # Log yt-dlp version for diagnostics
+    try:  # pragma: no cover
+        yt = os.environ.get("YT_DLP_BIN") or shutil.which("yt-dlp")
+        if yt:
+            ver = subprocess.check_output([yt, "--version"], text=True, timeout=5).strip()
+            logging.getLogger("backend.app").info(f"yt-dlp version={ver} bin={yt}")
     except Exception:
         pass
 

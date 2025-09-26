@@ -2,41 +2,13 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Run backend tests (venv)",
-			"type": "shell",
-			"command": "cmd.exe",
-			"args": [
-				"/d",
-				"/c",
-				"venv\\Scripts\\python -m pytest -q backend/tests/test_track_covers.py"
-			],
-			"problemMatcher": [
-				"$pytest-internal"
-			],
-			"group": "test"
-		},
-		{
-			"label": "Run backend tests (venv)",
-			"type": "shell",
-			"command": "cmd.exe",
-			"args": [
-				"/d",
-				"/c",
-				"venv\\Scripts\\python -m pytest -q backend/tests/test_download_yt_dlp_fake.py backend/tests/test_download_queue.py"
-			],
-			"problemMatcher": [
-				"$pytest"
-			],
-			"group": "test"
-		},
-		{
 			"label": "Run backend tests (.venv)",
 			"type": "shell",
 			"command": "cmd.exe",
 			"args": [
 				"/d",
 				"/c",
-				".venv\\Scripts\\python -m pytest -q backend/tests/test_youtube_search_timeout.py backend/tests/test_youtube_search.py backend/tests/test_youtube_scoring_channel.py"
+				".venv\\Scripts\\python -m pytest -q backend/tests/"
 			],
 			"group": "test"
 		},
@@ -55,17 +27,44 @@
 			"group": "build"
 		},
 		{
-			"label": "Build frontend (vite)",
+			"label": "Docker: Build image",
 			"type": "shell",
-			"command": "cmd.exe",
+			"command": "powershell.exe",
 			"args": [
-				"/d",
-				"/c",
-				"cd frontend && npm ci --no-audit --silent && npx vite build"
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\build_and_push.ps1",
+				"-BuildOnly"
 			],
-			"isBackground": false,
-			"problemMatcher": [
-				"$eslint-stylish"
+			"group": "build"
+		},
+		{
+			"label": "Docker: Push image",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\build_and_push.ps1",
+				"-PushOnly"
+			],
+			"group": "build",
+			"dependsOn": ["Docker: Build image"]
+		},
+		{
+			"label": "Docker: Build & Push",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\build_and_push.ps1"
 			],
 			"group": "build"
 		}

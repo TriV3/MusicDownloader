@@ -224,6 +224,7 @@ Notes:
 
 Implementation (in progress):
 - Added `utils.downloader.perform_download` supporting Fake mode via `DOWNLOAD_FAKE=1` and real yt-dlp path via `YT_DLP_BIN`/`FFMPEG_BIN`.
+- yt-dlp invocations now inject `--extractor-args` with `youtube:player_client=android` by default (overridable via `DOWNLOAD_YTDLP_EXTRACTOR_ARGS`) to avoid SABR-only formats that provide images instead of audio.
 - Worker now performs actual downloads when `simulate_seconds=0` in `_restart_worker` or on startup.
 - Output directory configurable via `LIBRARY_DIR` (default `library/` at project root). Files are named `Artists - Title.ext` with de-dup suffix.
 - Checksums (SHA-256) and file size recorded on `Download` row.
@@ -444,13 +445,17 @@ Implementation (completed):
 - The runtime image copies the built SPA to `backend/app/static` and starts `uvicorn backend.app.main:app` on port 8000.
 - `.dockerignore` excludes venvs, node_modules, local DB, library, and editor files to keep contexts small.
 
-### Step 5.2: docker-compose and Volumes
-- Compose example with volumes for library (`/music`) and config (`/config`)
-- Environment variables for SECRET_KEY, Spotify, TZ, PUID/PGID
+### Step 5.2: docker-compose and Volumes (Implemented)
+- Added root-level `docker-compose.yml` with two named volumes:
+	- `music_library` mounted at `/music` for all downloaded audio and replicated playlist folders.
+	- `config_data` mounted at `/config` for persistent configuration (SQLite `music.db`, optional `.env`, future logs/settings).
+- Environment variables exposed: `SECRET_KEY`, `DATABASE_URL` (defaults to `sqlite+aiosqlite:////config/music.db`), `LIBRARY_DIR` (defaults `/music`), `TZ`, `PUID`, `PGID`, Spotify credentials, and `APP_LOG_LEVEL`.
+- The application now loads an additional `/config/.env` file (if present) after project `.env` files, without overriding explicitly provided environment variables.
+- Healthcheck added hitting `/api/v1/health` every 30s with a 20s start period.
 
 **Validation Criteria:**
-1. Downloads persist under mapped `/music`
-2. DB/.env/logs persist under `/config`
+1. Downloads persist under mapped `/music` — Achieved via `music_library` volume.
+2. DB/.env/logs persist under `/config` — Achieved via `config_data` volume and `/config/.env` support.
 
 ### Step 5.3: Healthcheck and Logging
 - Container healthcheck endpoint

@@ -101,6 +101,70 @@ async def _write_fake_mp3(path: Path, title: str, artists: str) -> None:
     await asyncio.to_thread(_write)
 
 
+def _resolve_extractor_args() -> Optional[str]:
+    raw = os.environ.get("DOWNLOAD_YTDLP_EXTRACTOR_ARGS")
+    if raw is None or raw.strip() == "":
+        raw = getattr(settings, "download_extractor_args", None)
+    if raw is None:
+        return None
+    normalized = raw.strip()
+    if normalized.lower() in {"none", "off", "false", "0"}:
+        return None
+    return normalized
+    
+def _resolve_extra_args() -> list[str]:
+    """Resolve additional yt-dlp CLI arguments from env YT_DLP_EXTRA_ARGS."""
+    raw = os.environ.get("YT_DLP_EXTRA_ARGS", "")
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+    try:
+        import shlex
+        return shlex.split(raw)
+    except Exception:
+        # Fallback split if shlex fails due to quotes on some platforms
+        return [p for p in raw.split() if p]
+
+
+def _build_ytdlp_command(
+    ytdlp_path: str,
+    ffmpeg_path: str,
+    tmp_out: Path,
+    url: str,
+    audio_fmt: str,
+    allow_embed: bool,
+    add_metadata: bool,
+    embed_thumb: bool,
+    clean_tags: bool,
+    metadata_args: list[str],
+) -> list[str]:
+    parts: list[str] = [
+        ytdlp_path,
+        "-x", "--audio-format", audio_fmt,
+        "--ffmpeg-location", ffmpeg_path,
+    ]
+    if add_metadata:
+        parts.append("--add-metadata")
+    if allow_embed and embed_thumb:
+        parts.append("--embed-thumbnail")
+    extractor_args = _resolve_extractor_args()
+    if extractor_args:
+        parts.extend(["--extractor-args", extractor_args])
+    # Append any global extra args from env (e.g., --force-ipv4 -f bestaudio ...)
+    extra_args = _resolve_extra_args()
+    if extra_args:
+        parts.extend(extra_args)
+    fmt_flags: list[str] = []
+    if clean_tags:
+        fmt_flags += ["-map_metadata", "-1"]
+    if audio_fmt.lower() == "mp3":
+        fmt_flags += ["-id3v2_version", "3", "-write_id3v1", "1"]
+    ff_args = " ".join(fmt_flags + metadata_args)
+    parts.extend(["--ppa", f"ffmpeg:{ff_args}"])
+    parts.extend(["-o", str(tmp_out) + ".%(ext)s", url])
+    return parts
+
+
 async def perform_download(download_id: int) -> DownloadOutcome:
     """Perform the download for a Download row and return outcome.
 
@@ -255,27 +319,18 @@ async def perform_download(download_id: int) -> DownloadOutcome:
     embed_thumb = os.environ.get("DOWNLOAD_EMBED_THUMBNAIL", "1") not in {"0", "false", "False", "FALSE"}
 
     def build_cmd(audio_fmt: str, allow_embed: bool = True) -> list[str]:
-        parts: list[str] = [
-            ytdlp_path,
-            "-x", "--audio-format", audio_fmt,
-            "--ffmpeg-location", ffmpeg_path,
-        ]
-        if ytdlp_add_meta:
-            parts.append("--add-metadata")
-        # Embed YouTube thumbnail when allowed
-        if allow_embed and embed_thumb:
-            parts.append("--embed-thumbnail")
-        # Build ffmpeg post-processor args dynamically per format
-        fmt_flags: list[str] = []
-        if clean_tags:
-            fmt_flags += ["-map_metadata", "-1"]
-        if audio_fmt.lower() == "mp3":
-            fmt_flags += ["-id3v2_version", "3", "-write_id3v1", "1"]
-        # Always set our explicit metadata (artist/title[/album])
-        ff_args = " ".join(fmt_flags + pp_args)
-        parts.extend(["--ppa", f"ffmpeg:{ff_args}"])
-        parts.extend(["-o", str(tmp_out) + ".%(ext)s", cand.url])
-        return parts
+        return _build_ytdlp_command(
+            ytdlp_path=ytdlp_path,
+            ffmpeg_path=ffmpeg_path,
+            tmp_out=tmp_out,
+            url=cand.url,
+            audio_fmt=audio_fmt,
+            allow_embed=allow_embed,
+            add_metadata=ytdlp_add_meta,
+            embed_thumb=embed_thumb,
+            clean_tags=clean_tags,
+            metadata_args=pp_args,
+        )
 
     cmd = build_cmd(settings.preferred_audio_format, allow_embed=True)
     # Run command blocking (in thread to not block event loop)

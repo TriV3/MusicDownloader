@@ -27,6 +27,8 @@ ENV PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+ARG YT_DLP_VERSION=2025.09.05
+
 WORKDIR /app
 
 # System deps needed to build some pip packages in the future
@@ -38,7 +40,8 @@ RUN apt-get update \
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip \
-    && /opt/venv/bin/pip install -r backend/requirements.txt
+    && /opt/venv/bin/pip install -r backend/requirements.txt \
+    && /opt/venv/bin/pip install "yt-dlp==${YT_DLP_VERSION}"
 
 
 ###############################
@@ -51,6 +54,7 @@ LABEL org.opencontainers.image.title="music_downloader" \
       org.opencontainers.image.source="https://example.local/your-repo" \
       org.opencontainers.image.licenses="MIT"
 
+ARG YT_DLP_VERSION=2025.09.05
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \

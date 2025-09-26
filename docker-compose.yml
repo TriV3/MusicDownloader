@@ -1,0 +1,62 @@
+version: "3.9"
+
+services:
+  music_downloader:
+    image: ${REGISTRY_HOST:-192.168.2.5:5000}/${IMAGE_NAME:-music-downloader}:${IMAGE_VERSION:-latest}
+    # If you prefer to always build locally uncomment the next two lines and remove 'image:'
+    # build: .
+    # image: music-downloader:dev
+    container_name: music_downloader
+    restart: unless-stopped
+    environment:
+      # Core secrets / config
+      SECRET_KEY: ${SECRET_KEY:-change_me_please}
+      # Persisted SQLite DB under /config (maps to host config volume)
+      DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:////config/music.db}
+      # Optional: Override library location inside container (default /app/library)
+      LIBRARY_DIR: ${LIBRARY_DIR:-/music}
+      # Timezone for ffmpeg timestamps / logs
+      TZ: ${TZ:-UTC}
+      # Optional UID/GID mapping (Synology / NAS). Not all runtimes use these automatically; you may pair with user: directive.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      # Spotify (optional)
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
+      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
+      SPOTIFY_REDIRECT_URI: ${SPOTIFY_REDIRECT_URI:-}
+
+      YOUTUBE_SEARCH_LIMIT: 15
+      YOUTUBE_SEARCH_TIMEOUT: 12
+      
+      # Logging verbosity (INFO, DEBUG, etc.)
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
+      # Explicit binary locations (they are on PATH, but exposed for override/mount scenarios)
+      YT_DLP_BIN: ${YT_DLP_BIN:-/opt/venv/bin/yt-dlp}
+      FFMPEG_BIN: ${FFMPEG_BIN:-/usr/bin/ffmpeg}
+      # Documented build arg (informative – actual install happens at build time)
+      YT_DLP_VERSION: ${YT_DLP_VERSION:-2025.09.05}
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+      # Force a non-TV client (try android,web; if issues, try web)
+      DOWNLOAD_YTDLP_EXTRACTOR_ARGS: youtube:player_client=android,web
+      # Robust defaults: IPv4, best audio, ignore user config, single video
+      YT_DLP_EXTRA_ARGS: "--force-ipv4 -f bestaudio[ext=m4a]/bestaudio/best --ignore-config --no-playlist"
+    volumes:
+      # Music library (downloaded files and replicated playlist folders)
+      - music_library:/music
+      # Configuration (DB, .env, logs). You can place a .env file here to override defaults.
+      - config_data:/config
+      # Optionally expose host library directory to container default path for legacy expectations
+      # - music_library:/app/library
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  music_library:
+  config_data:

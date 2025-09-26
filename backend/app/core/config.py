@@ -16,10 +16,15 @@ except Exception:  # pragma: no cover
 from pathlib import Path
 _backend_env = Path(__file__).resolve().parents[2] / ".env"
 _root_env = Path(__file__).resolve().parents[3] / ".env"
+# When running in a container with a bind mount at /config we also optionally load /config/.env
+_config_mount_env = Path("/config/.env")
 # Load backend/.env if present
 load_dotenv(dotenv_path=str(_backend_env), override=False)
 # Load root/.env if present (values already set are not overridden)
 load_dotenv(dotenv_path=str(_root_env), override=False)
+# Finally load /config/.env if present (highest precedence among .env files but still not overriding real env vars)
+if _config_mount_env.exists():  # pragma: no cover - only in container/runtime
+    load_dotenv(dotenv_path=str(_config_mount_env), override=False)
 
 
 def _split_csv(value: str | None) -> List[str]:
@@ -59,6 +64,7 @@ class Settings(BaseModel):
     yt_dlp_bin: Optional[str] = os.environ.get("YT_DLP_BIN") or None
     ffmpeg_bin: Optional[str] = os.environ.get("FFMPEG_BIN") or None
     preferred_audio_format: str = os.environ.get("PREFERRED_AUDIO_FORMAT", "mp3")
+    download_extractor_args: Optional[str] = os.environ.get("DOWNLOAD_YTDLP_EXTRACTOR_ARGS") or "youtube:player_client=android"
 
 
 settings = Settings()
