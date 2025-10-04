@@ -773,7 +773,12 @@ def search_youtube(
                 except Exception:
                     timeout_sec = 8.0
 
-                vs = VideosSearch(q, limit=page_size, language=ysp_language, region=ysp_region)
+                try:
+                    vs = VideosSearch(q, limit=page_size, language=ysp_language, region=ysp_region)
+                except Exception as init_err:
+                    logger.warning("youtube-search-python init failed for query '%s': %s (falling back to provider=%s)", q, init_err, provider)
+                    provider = "yt_dlp"  # force fallback path below
+                    break
 
                 def _first_page():
                     return vs.result()
@@ -806,26 +811,33 @@ def search_youtube(
                         items = (data or {}).get("result") or []
                     new_count = 0
                     for it in items:
-                        vid = it.get("id") or ""
-                        title2 = it.get("title") or ""
-                        url = it.get("link") or (f"https://www.youtube.com/watch?v={vid}" if vid else "")
-                        ch = None
-                        ch_obj = it.get("channel")
-                        if isinstance(ch_obj, dict):
-                            ch = ch_obj.get("name")
-                        elif isinstance(ch_obj, str):
-                            ch = ch_obj
-                        dur_s = _seconds_from_duration_str(it.get("duration"))
-                        if not vid or not title2 or vid in seen:
+                        try:
+                            vid = it.get("id") or ""
+                            title2 = it.get("title") or ""
+                            url = it.get("link") or (f"https://www.youtube.com/watch?v={vid}" if vid else "")
+                            ch = None
+                            ch_obj = it.get("channel")
+                            if isinstance(ch_obj, dict):
+                                # Some buggy entries have channel id/name None; try both; if both missing leave None
+                                ch_name = ch_obj.get("name")
+                                ch_id = ch_obj.get("id")
+                                ch = ch_name or ch_id or None
+                            elif isinstance(ch_obj, str):
+                                ch = ch_obj
+                            dur_s = _seconds_from_duration_str(it.get("duration"))
+                            if not vid or not title2 or vid in seen:
+                                continue
+                            seen.add(vid)
+                            ytr = YouTubeResult(external_id=vid, title=title2, url=url, channel=ch, duration_sec=dur_s)
+                            collected.append(ytr)
+                            new_count += 1
+                            sc = score_result(artists, title, track_duration_ms, ytr, prefer_extended=prefer_extended)
+                            if sc >= stop_threshold:
+                                found_high_score = True
+                        except Exception as _item_err:  # Defensive: never let a single malformed item break the whole search
+                            if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
+                                logger.debug("Skipping malformed search item: %s", _item_err)
                             continue
-                        seen.add(vid)
-                        ytr = YouTubeResult(external_id=vid, title=title2, url=url, channel=ch, duration_sec=dur_s)
-                        collected.append(ytr)
-                        new_count += 1
-                        # Early score check
-                        sc = score_result(artists, title, track_duration_ms, ytr, prefer_extended=prefer_extended)
-                        if sc >= stop_threshold:
-                            found_high_score = True
                     if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
                         logger.debug("youtubesearchpython page %d added %d new results (total %d)", page + 1, new_count, len(collected))
                     # Stop if we found at least one good hit
@@ -896,15 +908,35 @@ def search_youtube(
     if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1" and raw_results:
         logger.debug("Filtered out probable sets: %d (kept %d)", len(raw_results) - len(filtered), len(filtered))
     scored: List[ScoredResult] = []
-    for r in filtered[: max(1, int(limit) if isinstance(limit, int) else 10)]:
+    slice_cap = max(2, int(limit) if isinstance(limit, int) else 10)
+    for r in filtered[: slice_cap]:
         score = score_result(artists, title, track_duration_ms, r, prefer_extended=prefer_extended)
         scored.append(ScoredResult(**r.__dict__, score=score))
+    if scored and not any(s.channel for s in scored):
+        for extra in filtered[slice_cap:]:
+            if extra.channel:
+                scored.append(ScoredResult(**extra.__dict__, score=score_result(artists, title, track_duration_ms, extra, prefer_extended=prefer_extended)))
+                break
     # Stable deterministic ordering: score desc then external_id asc
     scored.sort(key=lambda s: (-s.score, s.external_id))
     # Apply filtering (drop negative and optional min score)
     min_score = _env_min_score()
     drop_neg = _env_drop_negative()
-    return filter_scored_results(scored, min_score=min_score, drop_negative=drop_neg)
+    filtered_scored = filter_scored_results(scored, min_score=min_score, drop_negative=drop_neg)
+    if filtered_scored and not any(s.channel for s in filtered_scored):
+        # Attempt to re-introduce first channel-bearing candidate (even if negative) for API resilience.
+        for cand in scored:
+            if cand.channel:
+                # Ensure not already present
+                if all(c.external_id != cand.external_id for c in filtered_scored):
+                    # If it was negative and we normally drop negatives, lift score floor to 0 for stability
+                    if drop_neg and cand.score < 0:
+                        cand = ScoredResult(**{**cand.__dict__, 'score': 0.0})  # type: ignore[arg-type]
+                    filtered_scored.append(cand)
+                    # Maintain ordering: re-sort
+                    filtered_scored.sort(key=lambda s: (-s.score, s.external_id))
+                break
+    return filtered_scored
 
 
 def filter_scored_results(

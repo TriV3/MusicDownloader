@@ -58,8 +58,10 @@ def _normalize_artist_separators(artists: str) -> str:
     s = artists
     # First normalize dash variants (rare inside artists) and spacing consistently
     s = _normalize_dash_variants(s)
-    # Replace various separators with ampersand
-    s = re.sub(r"(?i)\s*[x×]\s*", " & ", s)
+    # Replace various separators with ampersand.
+    # IMPORTANT: Only treat 'x' or '×' as a separator when surrounded by whitespace (e.g., 'Artist x Remix').
+    # Do NOT split inside artist names containing 'x' like 'Ausmax' or 'Phoenix'.
+    s = re.sub(r"(?i)\s+[x×]\s+", " & ", s)
     s = re.sub(r"\s*\+\s*", " & ", s)
     s = re.sub(r"\s*/\s*", " & ", s)
     s = re.sub(r"(?i)\s*\band\b\s*", " & ", s)
@@ -120,9 +122,10 @@ def normalize_track(artists: str, title: str) -> NormalizedTrack:
     orig_artists = _normalize_artist_separators(orig_artists)
     orig_title = _normalize_dash_variants(orig_title)
 
-    # Remove featured mentions from artists and title
-    artists_wo_feat = _FEAT_RE.sub("", orig_artists)
-    title_wo_feat = _FEAT_RE.sub("", orig_title)
+    # Replace featured markers with a separator so collaborators are preserved:
+    # 'Artist feat. Someone x Another' -> 'Artist & Someone x Another'
+    artists_wo_feat = re.sub(r"(?i)\b(feat\.?|ft\.?|featuring)\b", " & ", orig_artists)
+    title_wo_feat = re.sub(r"(?i)\b(feat\.?|ft\.?|featuring)\b", " & ", orig_title)
 
     # Strip bracketed content and dash suffixes that often include version info
     title_base = _PARENS_CONTENT_RE.sub("", title_wo_feat)
@@ -145,6 +148,8 @@ def normalize_track(artists: str, title: str) -> NormalizedTrack:
     # Apply separator normalization on the accent-stripped artists once more to ensure symbols survived
     artists_no_accents = _normalize_artist_separators(artists_no_accents)
     clean_artists = _clean_punctuation(artists_no_accents)
+    # After cleaning punctuation, collapse orphan ampersands (e.g., 'Artist &  Another')
+    clean_artists = re.sub(r"& +&", "&", clean_artists)
     clean_title = _clean_punctuation(title_no_accents)
 
     # Primary artist
