@@ -90,6 +90,14 @@ CHANNEL_BONUS_EXACT_MATCH_WEIGHT: float = 0.08  # channel normalized equals arti
 CHANNEL_BONUS_ARTIST_SUBSTR_WEIGHT: float = 0.05  # artist appears in channel name
 CHANNEL_BONUS_CAP: float = 0.30  # must be < EXTENDED_BONUS_WEIGHT
 
+# Identical-title longer version heuristic (to favor plausible extended versions even without explicit markers)
+LENGTH_IDENTICAL_MIN_DELTA_SEC: float = 5.0   # minimum extra seconds over target to consider
+LENGTH_IDENTICAL_MAX_RATIO: float = 2.0       # user-requested maximum ratio (candidate/target)
+# We boost the cap so that an otherwise penalized longer version can surpass the exact-length version
+# when prefer_extended is active and titles are identical. This avoids the short version always winning
+# due to duration proximity weight.
+LENGTH_IDENTICAL_BONUS_CAP: float = 0.45      # cap for length-based bonus without explicit marker (tunable)
+
 
 def _normalize_for_tokens(s: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", " ", (s or "").lower()).strip()
@@ -542,6 +550,26 @@ def get_score_components(
     # Slight negative for 'audio' only uploads when not official channel
     if "audio" in title_l and ch_bonus < 0.20:
         keywords_penalty -= 0.05
+
+    # Length-identical bonus: identical token set & longer within ratio constraints when prefer_extended
+    if prefer_extended and track_duration_ms and result_duration_sec and result_duration_sec > 0:
+        target_sec = track_duration_ms / 1000.0
+        if target_sec > 0:
+            delta_sec = result_duration_sec - target_sec
+            if delta_sec >= LENGTH_IDENTICAL_MIN_DELTA_SEC:
+                ratio = result_duration_sec / target_sec
+                if ratio <= LENGTH_IDENTICAL_MAX_RATIO:
+                    q_tokens = set(_normalize_for_tokens(norm_query).split())
+                    t_tokens = set(_normalize_for_tokens(norm_title).split())
+                    if q_tokens == t_tokens and q_tokens:
+                        # Neutralize negative duration penalty for longer identical variant
+                        if duration_bonus < 0:
+                            duration_bonus = 0.0
+                        # Compute an aggressive bonus scaling with relative delta & ratio
+                        rel = delta_sec / target_sec
+                        # Base 0.25 plus up to +0.20 from relative length and +0.10 from ratio growth (capped overall)
+                        bonus = 0.25 + min(0.20, rel * 0.40) + min(0.10, (ratio - 1.0) * 0.25)
+                        ext_bonus += min(LENGTH_IDENTICAL_BONUS_CAP, bonus)
 
     return (
         round(text_sim, 6),
