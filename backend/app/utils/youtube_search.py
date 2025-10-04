@@ -98,6 +98,12 @@ LENGTH_IDENTICAL_MAX_RATIO: float = 2.0       # user-requested maximum ratio (ca
 # due to duration proximity weight.
 LENGTH_IDENTICAL_BONUS_CAP: float = 0.45      # cap for length-based bonus without explicit marker (tunable)
 
+# Exact vs verbose heuristic: encourage exact title token identity, penalize large extra token supersets
+EXACT_TOKEN_SET_BONUS: float = 0.30        # strong boost for identical token set (artist+title footprint)
+EXTRA_TOKEN_PENALTY_PER: float = 0.02      # penalty per surplus token beyond query tokens (capped)
+EXTRA_TOKEN_PENALTY_CAP: float = 0.30
+EXTRA_TOKEN_DURATION_CAP: float = 0.15     # cap duration bonus when many extra tokens inflate match
+
 
 def _normalize_for_tokens(s: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", " ", (s or "").lower()).strip()
@@ -570,6 +576,27 @@ def get_score_components(
                         # Base 0.25 plus up to +0.20 from relative length and +0.10 from ratio growth (capped overall)
                         bonus = 0.25 + min(0.20, rel * 0.40) + min(0.10, (ratio - 1.0) * 0.25)
                         ext_bonus += min(LENGTH_IDENTICAL_BONUS_CAP, bonus)
+
+    # Extra token penalty / exact token bonus logic
+    try:
+        q_tokens = set(_normalize_for_tokens(norm_query).split())
+        t_tokens = set(_normalize_for_tokens(norm_title).split())
+        if q_tokens and t_tokens:
+            extras = t_tokens - q_tokens
+            missing = q_tokens - t_tokens
+            # We already penalize missing tokens; now penalize surplus when all query tokens are present
+            if not missing and extras:
+                # Apply penalty proportional to surplus size, capped
+                penalty = min(EXTRA_TOKEN_PENALTY_CAP, len(extras) * EXTRA_TOKEN_PENALTY_PER)
+                tokens_penalty -= penalty
+                # Cap duration bonus to avoid long verbose variant dominating
+                if duration_bonus > EXTRA_TOKEN_DURATION_CAP:
+                    duration_bonus = EXTRA_TOKEN_DURATION_CAP
+            elif not missing and not extras:
+                # Perfect token identity → bonus
+                tokens_penalty += EXACT_TOKEN_SET_BONUS
+    except Exception:
+        pass
 
     return (
         round(text_sim, 6),
