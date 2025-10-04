@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
+import { useAudioPlayer } from '../contexts/AudioPlayerContext'
 import './AudioPlayer.css'
 
 export interface Track {
@@ -27,7 +28,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   onEnded,
   onClose
 }) => {
-  const audioRef = useRef<HTMLAudioElement>(null)
+  // Use a canvas-only component; underlying <audio> managed globally in context
+  const { audioElement } = useAudioPlayer()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
@@ -61,7 +63,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   // Draw waveform
   const drawWaveform = useCallback(() => {
     const canvas = canvasRef.current
-    const audio = audioRef.current
+  const audio = audioElement
     if (!canvas || !audioBuffer || !audio) return
 
     const ctx = canvas.getContext('2d')
@@ -140,7 +142,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
   // Audio event handlers
   useEffect(() => {
-    const audio = audioRef.current
+  const audio = audioElement
     if (!audio) return
 
     const handleTimeUpdate = () => setCurrentTime(audio.currentTime)
@@ -163,7 +165,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
   // Play/pause control
   useEffect(() => {
-    const audio = audioRef.current
+  const audio = audioElement
     if (!audio) return
 
     if (isPlaying) {
@@ -176,7 +178,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   // Handle canvas click for seeking with improved precision
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
-    const audio = audioRef.current
+  const audio = audioElement
     if (!canvas || !audio || !duration) return
 
     const rect = canvas.getBoundingClientRect()
@@ -221,7 +223,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
   return (
     <div className="audio-player">
-      <audio ref={audioRef} src={audioUrl} preload="metadata" />
+  {/* Global audio element lives in context; no local <audio> here */}
       
       <button className="audio-player-close" onClick={onClose} title="Fermer le lecteur">
         ✕
