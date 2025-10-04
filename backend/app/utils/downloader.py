@@ -102,6 +102,7 @@ async def _write_fake_mp3(path: Path, title: str, artists: str) -> None:
 
 
 def _resolve_extractor_args() -> Optional[str]:
+    """Resolve the base extractor args from env/settings (may be overridden per retry profile)."""
     raw = os.environ.get("DOWNLOAD_YTDLP_EXTRACTOR_ARGS")
     if raw is None or raw.strip() == "":
         raw = getattr(settings, "download_extractor_args", None)
@@ -111,6 +112,55 @@ def _resolve_extractor_args() -> Optional[str]:
     if normalized.lower() in {"none", "off", "false", "0"}:
         return None
     return normalized
+
+
+def _build_retry_profiles(base_extractor: Optional[str]) -> list[Optional[str]]:
+    """Build an ordered list of extractor-args overrides to try.
+
+    Goal: behave like desktop browser first (web) and progressively widen.
+    Default order (when android present or user wants desktop behavior):
+        web -> web_embedded -> tv -> auto (None)
+
+    If base extractor args does NOT specify player_client we keep it as first profile to respect user config.
+    Users can override ordering via DOWNLOAD_RETRY_PROFILES CSV tokens.
+
+    Supported tokens -> extractor args:
+      web        : youtube:player_client=web
+      web_embed  : youtube:player_client=web_embedded,web
+      tv         : youtube:player_client=tv,web
+      auto       : None (let yt-dlp decide)
+      android    : youtube:player_client=android,web  (not recommended without PO token)
+    """
+    override_csv = os.environ.get("DOWNLOAD_RETRY_PROFILES")
+    token_map: dict[str, Optional[str]] = {
+        "web": "youtube:player_client=web",
+        "web_embed": "youtube:player_client=web_embedded,web",
+        "tv": "youtube:player_client=tv,web",
+        "auto": None,
+        "android": "youtube:player_client=android,web",
+    }
+    profiles: list[Optional[str]] = []
+    if override_csv:
+        for tok in [t.strip() for t in override_csv.split(",") if t.strip()]:
+            arg = token_map.get(tok)
+            if tok not in token_map:
+                continue
+            if arg not in profiles:
+                profiles.append(arg)
+        if not profiles:
+            profiles = [None]
+        return profiles
+    # Auto-build
+    base_has_client = bool(base_extractor and "player_client=" in base_extractor)
+    if not base_has_client and base_extractor:
+        # Use user supplied first, then fallback to auto
+        profiles.append(base_extractor)
+        profiles.append(None)
+        return profiles
+    # Android present or explicit multi client: prefer desktop-like first
+    for arg in ("youtube:player_client=web", "youtube:player_client=web_embedded,web", "youtube:player_client=tv,web", None):
+        profiles.append(arg)
+    return profiles
     
 def _resolve_extra_args() -> list[str]:
     """Resolve additional yt-dlp CLI arguments from env YT_DLP_EXTRA_ARGS."""
@@ -137,6 +187,7 @@ def _build_ytdlp_command(
     embed_thumb: bool,
     clean_tags: bool,
     metadata_args: list[str],
+    extractor_override: Optional[str] = None,
 ) -> list[str]:
     parts: list[str] = [
         ytdlp_path,
@@ -147,7 +198,7 @@ def _build_ytdlp_command(
         parts.append("--add-metadata")
     if allow_embed and embed_thumb:
         parts.append("--embed-thumbnail")
-    extractor_args = _resolve_extractor_args()
+    extractor_args = extractor_override if extractor_override is not None else _resolve_extractor_args()
     if extractor_args:
         parts.extend(["--extractor-args", extractor_args])
     # Append any global extra args from env (e.g., --force-ipv4 -f bestaudio ...)
@@ -332,26 +383,82 @@ async def perform_download(download_id: int) -> DownloadOutcome:
             metadata_args=pp_args,
         )
 
-    cmd = build_cmd(settings.preferred_audio_format, allow_embed=True)
-    # Run command blocking (in thread to not block event loop)
-    def _run():
+    base_extractor = _resolve_extractor_args()
+    profiles = _build_retry_profiles(base_extractor)
+    preferred_fmt = settings.preferred_audio_format.lower()
+    last_error: Optional[Exception] = None
+
+    def _run_profile(extractor_override: Optional[str]) -> bool:
+        nonlocal last_error
+        # Build initial command (preferred fmt)
+        cmd_local = _build_ytdlp_command(
+            ytdlp_path=ytdlp_path,
+            ffmpeg_path=ffmpeg_path,
+            tmp_out=tmp_out,
+            url=cand.url,
+            audio_fmt=preferred_fmt,
+            allow_embed=True,
+            add_metadata=ytdlp_add_meta,
+            embed_thumb=embed_thumb,
+            clean_tags=clean_tags,
+            metadata_args=pp_args,
+            extractor_override=extractor_override,
+        )
         print(f"[downloader] Using yt-dlp={ytdlp_path} ffmpeg={ffmpeg_path}")
-        print(f"[downloader] Running: {' '.join(shlex.quote(c) for c in cmd)}")
+        print(f"[downloader] Profile extractor_args={extractor_override or 'AUTO'} cmd: {' '.join(shlex.quote(c) for c in cmd_local)}")
         try:
-            subprocess.run(cmd, check=True)
+            res = subprocess.run(cmd_local, check=True, capture_output=True, text=True)
+            return True
         except FileNotFoundError as e:
             raise RuntimeError(f"Executable not found: {e.filename}. Check YT_DLP_BIN/FFMPEG_BIN or PATH.") from e
         except subprocess.CalledProcessError as e:
-            # Fallback: if mp3 failed, try m4a without thumbnail embedding (more compatible on minimal ffmpeg)
-            pref = settings.preferred_audio_format.lower()
-            if pref == "mp3":
-                fcmd = build_cmd("m4a", allow_embed=True)
-                print("[downloader] mp3 conversion failed; retrying with m4a (no thumbnail embed)")
-                print(f"[downloader] Running: {' '.join(shlex.quote(c) for c in fcmd)}")
-                subprocess.run(fcmd, check=True)
-            else:
-                raise
-    await asyncio.to_thread(_run)
+            stderr = e.stderr or ""
+            sabr_hint = any(k in stderr for k in ["SABR", "Did not get any data blocks", "po token", "missing a url"])
+            # Try m4a fallback if mp3 preferred
+            if preferred_fmt == "mp3":
+                alt_cmd = _build_ytdlp_command(
+                    ytdlp_path=ytdlp_path,
+                    ffmpeg_path=ffmpeg_path,
+                    tmp_out=tmp_out,
+                    url=cand.url,
+                    audio_fmt="m4a",
+                    allow_embed=True,
+                    add_metadata=ytdlp_add_meta,
+                    embed_thumb=embed_thumb,
+                    clean_tags=clean_tags,
+                    metadata_args=pp_args,
+                    extractor_override=extractor_override,
+                )
+                print("[downloader] mp3 failed; retrying same profile with m4a")
+                print(f"[downloader] Running: {' '.join(shlex.quote(c) for c in alt_cmd)}")
+                try:
+                    subprocess.run(alt_cmd, check=True, capture_output=True, text=True)
+                    return True
+                except subprocess.CalledProcessError as e2:
+                    stderr2 = e2.stderr or ""
+                    sabr_hint = sabr_hint or any(k in stderr2 for k in ["SABR", "Did not get any data blocks", "po token", "missing a url"])
+                    if sabr_hint:
+                        last_error = e2
+                        return False  # move to next profile
+                    last_error = e2
+                    raise
+            if sabr_hint:
+                last_error = e
+                return False  # try next profile
+            last_error = e
+            raise
+
+    # Iterate profiles
+    for idx, prof in enumerate(profiles, start=1):
+        print(f"[downloader] Trying profile {idx}/{len(profiles)} extractor_args={prof or 'AUTO'}")
+        success = await asyncio.to_thread(_run_profile, prof)
+        if success:
+            break
+    else:
+        # Exhausted profiles, raise last error if any
+        if last_error:
+            raise last_error
+        raise RuntimeError("Download failed after all profiles without explicit error captured")
     # Determine actual output file produced
     produced = None
     for ext_try in (".mp3", ".m4a", ".opus", ".webm"):
