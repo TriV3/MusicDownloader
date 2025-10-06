@@ -315,6 +315,15 @@ async def youtube_search_track(
                         channel=comps[3],
                         penalty=comps[4] + comps[5],
                         total=round(sum(comps), 6),
+                        details=SearchCandidateRead.ScoreBreakdown.ScoreDetails(
+                            text_similarity=comps[0],
+                            duration_bonus=comps[1],
+                            extended_base=comps[2],
+                            extended_length_bonus=None,
+                            channel_bonus=comps[3],
+                            tokens_penalty=comps[4],
+                            keywords_penalty=comps[5],
+                        ),
                     ),
                 )
             )

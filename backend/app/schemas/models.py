@@ -152,6 +152,15 @@ class SearchCandidateRead(SearchCandidateCreate):
         channel: float
         penalty: float  # aggregated: tokens_penalty + keywords_penalty
         total: float
+        class ScoreDetails(BaseModel):
+            text_similarity: Optional[float] = None
+            duration_bonus: Optional[float] = None
+            extended_base: Optional[float] = None
+            extended_length_bonus: Optional[float] = None
+            channel_bonus: Optional[float] = None
+            tokens_penalty: Optional[float] = None
+            keywords_penalty: Optional[float] = None
+        details: Optional[ScoreDetails] = None
 
     score_breakdown: Optional[ScoreBreakdown] = None
 

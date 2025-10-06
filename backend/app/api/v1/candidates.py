@@ -53,6 +53,15 @@ def _attach_computed(track: Optional[Track], cand: SearchCandidate) -> SearchCan
             channel=comps[3],
             penalty=comps[4] + comps[5],
             total=total,
+            details=SearchCandidateRead.ScoreBreakdown.ScoreDetails(
+                text_similarity=comps[0],
+                duration_bonus=comps[1],
+                extended_base=comps[2],
+                extended_length_bonus=None,  # populated only in prefer_extended recalculation path if length bonus applied
+                channel_bonus=comps[3],
+                tokens_penalty=comps[4],
+                keywords_penalty=comps[5],
+            ),
         )
     return base
 
@@ -104,6 +113,11 @@ async def list_candidates(
                     prefer_extended=True,
                 )
                 total = round(sum(comps), 6)
+                # Attempt to detect if extended bonus includes length-identical augmentation by difference from EXTENDED_BONUS_WEIGHT
+                from ...utils.youtube_search import EXTENDED_BONUS_WEIGHT  # type: ignore
+                extended_length_bonus = None
+                if comps[2] > EXTENDED_BONUS_WEIGHT:
+                    extended_length_bonus = round(comps[2] - EXTENDED_BONUS_WEIGHT, 6)
                 base.score_breakdown = type(base.score_breakdown)(
                     text=comps[0],
                     duration=comps[1],
@@ -111,6 +125,15 @@ async def list_candidates(
                     channel=comps[3],
                     penalty=comps[4] + comps[5],
                     total=total,
+                    details=type(base.score_breakdown.details or SearchCandidateRead.ScoreBreakdown.ScoreDetails())(
+                        text_similarity=comps[0],
+                        duration_bonus=comps[1],
+                        extended_base=min(comps[2], EXTENDED_BONUS_WEIGHT),
+                        extended_length_bonus=extended_length_bonus,
+                        channel_bonus=comps[3],
+                        tokens_penalty=comps[4],
+                        keywords_penalty=comps[5],
+                    ),
                 )
         return base
     enriched = [_attach_with_pref(c) for c in rows]
