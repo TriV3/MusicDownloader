@@ -3,7 +3,6 @@ import asyncio
 from httpx import AsyncClient
 
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-os.environ.setdefault("YOUTUBE_SEARCH_FAKE", "0")
 os.environ.setdefault("DISABLE_DOWNLOAD_WORKER", "1")
 
 try:
@@ -15,6 +14,8 @@ except Exception:  # pragma: no cover
 async def test_youtube_search_handles_malformed_channel(monkeypatch):
     # Force provider to yts_python
     monkeypatch.setenv("YOUTUBE_SEARCH_PROVIDER", "yts_python")
+    # Ensure fake mode disabled for this test only (avoid interfering with other tests relying on fake=1)
+    monkeypatch.setenv("YOUTUBE_SEARCH_FAKE", "0")
 
     # Patch VideosSearch to return an item with channel dict lacking name/id
     from backend.app.utils import youtube_search as ys

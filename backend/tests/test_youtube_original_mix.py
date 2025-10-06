@@ -34,4 +34,4 @@ def test_original_mix_scored_as_extended():
     )
     s = score_result("Artist", "Title", track_duration_ms=180000, result=r, prefer_extended=True)
     # Should have a noticeable extended-related uplift vs non-extended
-    assert s > 0.35
+    assert s > 1.0

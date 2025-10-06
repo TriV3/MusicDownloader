@@ -84,7 +84,8 @@ def _is_probable_set(title: str, duration_sec: Optional[int], track_duration_ms:
     return False
 
 # Scoring weights (keep extended strictly greater than channel)
-EXTENDED_BONUS_WEIGHT: float = 0.35
+# Increased extended bonus from 0.35 to 1.0 as requested.
+EXTENDED_BONUS_WEIGHT: float = 1.0
 CHANNEL_BONUS_OFFICIAL_WEIGHT: float = 0.20  # vevo/official/topic
 CHANNEL_BONUS_EXACT_MATCH_WEIGHT: float = 0.08  # channel normalized equals artist normalized
 CHANNEL_BONUS_ARTIST_SUBSTR_WEIGHT: float = 0.05  # artist appears in channel name

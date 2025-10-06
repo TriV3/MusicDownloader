@@ -159,6 +159,12 @@ def normalize_track(artists: str, title: str) -> NormalizedTrack:
     norm_artists = clean_artists.lower()
     norm_title = clean_title.lower()
 
+    # If original artists string contained an explicit featured marker, collapse normalized_artists
+    # to only the primary artist to keep normalization consistent with expectations while retaining
+    # full collaborator info in clean_artists. This mirrors legacy behavior relied upon by tests.
+    if re.search(r"(?i)\b(feat\.?|ft\.?|featuring)\b", orig_artists):
+        norm_artists = _clean_punctuation(_strip_accents(primary)).lower()
+
     return NormalizedTrack(
         primary_artist=primary,
         clean_artists=clean_artists,
