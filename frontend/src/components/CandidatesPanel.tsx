@@ -79,13 +79,45 @@ export const CandidatesPanel: React.FC = () => {
     setYtLoading(true)
     setYtStatus('')
     try {
+      // Fetch track info for logging
+      const trackResponse = await fetch(`/api/v1/tracks/${selectedTrack}`)
+      const trackData = trackResponse.ok ? await trackResponse.json() : null
+
       const params = new URLSearchParams({ prefer_extended: String(ytPreferExtended), persist: String(ytPersist) })
       const r = await fetch(`/api/v1/tracks/${selectedTrack}/youtube/search?` + params.toString())
       if (!r.ok) {
         const msg = await r.text().catch(() => '')
         setYtStatus(`Search failed (${r.status}). ${msg || ''}`)
       } else {
-        await r.json().catch(() => null)
+        const searchResults = await r.json().catch(() => null)
+        
+        // Format and log the search query and results
+        if (trackData && searchResults) {
+          const formatDuration = (ms: number | null | undefined) => {
+            if (!ms) return 'N/A'
+            const totalSeconds = Math.floor(ms / 1000)
+            const minutes = Math.floor(totalSeconds / 60)
+            const seconds = totalSeconds % 60
+            return `${minutes}:${seconds.toString().padStart(2, '0')}`
+          }
+
+          const logData = {
+            query: {
+              artists: trackData.artists || 'Unknown',
+              title: trackData.title || 'Unknown',
+              length: formatDuration(trackData.duration_ms)
+            },
+            candidates: Array.isArray(searchResults) ? searchResults.map((candidate: any, index: number) => ({
+              id: `c${index + 1}`,
+              channel: candidate.channel || 'Unknown',
+              title: candidate.title || 'Unknown',
+              length: candidate.duration_sec ? formatDuration(candidate.duration_sec * 1000) : 'N/A'
+            })) : []
+          }
+
+          console.log(JSON.stringify(logData, null, 2))
+        }
+
         // Refresh candidates after a search; explicit only
         await load()
         // Notify other panels if needed
