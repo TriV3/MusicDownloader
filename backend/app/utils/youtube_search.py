@@ -5,15 +5,11 @@ using the local yt-dlp executable (preferred) or a fake provider for tests.
 
 Design goals:
 - Deterministic scoring for same inputs (ordering stable).
-- Lightweight heuristic combining textual similarity, duration proximity,
-  channel quality hints, and Extended/Club Mix preference when requested.
+- Uses the new unified ranking algorithm from ranking_service.py
 - Pure functions for scoring to facilitate unit tests.
 
 We intentionally avoid network calls in tests by honoring the
 YOUTUBE_SEARCH_FAKE=1 environment variable which returns canned results.
-
-Future enhancements (Phase 4 scoring refinements) can extend the score
-function while maintaining backward compatibility.
 """
 from __future__ import annotations
 
@@ -22,11 +18,12 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Set
+from typing import List, Optional, Set
 import logging
 import concurrent.futures
 
-from .normalize import normalize_track, duration_delta_sec
+from .normalize import normalize_track
+from .ranking_service import RankingService
 
 logger = logging.getLogger(__name__)
 
@@ -52,76 +49,13 @@ class YouTubeResult:
 @dataclass(frozen=True)
 class ScoredResult(YouTubeResult):
     score: float
+    score_breakdown: Optional[dict] = None  # Detailed score breakdown from ranking service
 
 
-_EXTENDED_KEYWORDS = ["extended mix", "club mix", "extended", "club edit", "original mix"]
-# Only treat explicit Remix/Edit tags as version markers; a bare "mix" is too generic (e.g., DJ mix)
-_REMIX_KEYWORDS = ["remix", "edit"]
-
-# Phrases indicating long-form DJ sets or compilations (not single-track extended versions)
-_LONG_MIX_HINTS = [
-    "dj mix", "b2b", "back to back", "set", "live set", "podcast", "session",
-    "continuous mix", "full set", "mix @",
-]
-
-def _is_probable_set(title: str, duration_sec: Optional[int], track_duration_ms: Optional[int]) -> bool:
-    """Heuristic to exclude long-form DJ sets or compilations from single-track results.
-
-    Returns True when a result looks like a DJ set or is far longer than the track.
-    """
-    t = (title or "").lower()
-    if any(h in t for h in _LONG_MIX_HINTS):
-        return True
-    if duration_sec is None:
-        return False
-    # If we don't know the track length: exclude very long results (>= 20 minutes)
-    if track_duration_ms is None:
-        return duration_sec >= 1200  # 20 minutes
-    track_s = max(1, int(round(track_duration_ms / 1000)))
-    # Exclude if much longer than the track: > +5 minutes AND > 1.8x the track length
-    if duration_sec - track_s > 300 and duration_sec > int(track_s * 1.8):
-        return True
-    return False
-
-# Scoring weights (keep extended strictly greater than channel)
-# Increased extended bonus from 0.35 to 1.0 as requested.
-EXTENDED_BONUS_WEIGHT: float = 1.0
-CHANNEL_BONUS_OFFICIAL_WEIGHT: float = 0.20  # vevo/official/topic
-CHANNEL_BONUS_EXACT_MATCH_WEIGHT: float = 0.08  # channel normalized equals artist normalized
-CHANNEL_BONUS_ARTIST_SUBSTR_WEIGHT: float = 0.05  # artist appears in channel name
-CHANNEL_BONUS_CAP: float = 0.30  # must be < EXTENDED_BONUS_WEIGHT
-
-# Identical-title longer version heuristic (to favor plausible extended versions even without explicit markers)
-LENGTH_IDENTICAL_MIN_DELTA_SEC: float = 5.0   # minimum extra seconds over target to consider
-LENGTH_IDENTICAL_MAX_RATIO: float = 2.0       # user-requested maximum ratio (candidate/target)
-# We boost the cap so that an otherwise penalized longer version can surpass the exact-length version
-# when prefer_extended is active and titles are identical. This avoids the short version always winning
-# due to duration proximity weight.
-LENGTH_IDENTICAL_BONUS_CAP: float = 0.45      # cap for length-based bonus without explicit marker (tunable)
-
-# Exact vs verbose heuristic: encourage exact title token identity, penalize large extra token supersets
-EXACT_TOKEN_SET_BONUS: float = 0.30        # strong boost for identical token set (artist+title footprint)
-EXTRA_TOKEN_PENALTY_PER: float = 0.02      # penalty per surplus token beyond query tokens (capped)
-EXTRA_TOKEN_PENALTY_CAP: float = 0.30
-EXTRA_TOKEN_DURATION_CAP: float = 0.15     # cap duration bonus when many extra tokens inflate match
+# Initialize the ranking service
+_ranking_service = RankingService()
 
 
-def _normalize_for_tokens(s: str) -> str:
-    return re.sub(r"[^a-z0-9 ]+", " ", (s or "").lower()).strip()
-
-
-def _normalize_query_string(q: str) -> str:
-    """Normalize a query for a fallback search by relaxing punctuation.
-
-    - Replace most non-alphanumeric characters with spaces
-    - Collapse multiple spaces
-    - Lower-casing is fine for YouTube search, but we keep original case as yt-dlp is case-insensitive
-    """
-    # Replace slashes, dashes, underscores, brackets, etc. with spaces
-    q2 = re.sub(r"[^\w]+", " ", q or "")
-    # Collapse whitespace
-    q2 = re.sub(r"\s+", " ", q2).strip()
-    return q2
 def _seconds_from_duration_str(s: Optional[str]) -> Optional[int]:
     """Parse 'HH:MM:SS' or 'MM:SS' duration strings to seconds."""
     if not s:
@@ -141,10 +75,26 @@ def _seconds_from_duration_str(s: Optional[str]) -> Optional[int]:
         return parts[0]
     return None
 
+
+def _normalize_query_string(q: str) -> str:
+    """Normalize a query for a fallback search by relaxing punctuation.
+
+    - Replace most non-alphanumeric characters with spaces
+    - Collapse multiple spaces
+    - Lower-casing is fine for YouTube search, but we keep original case as yt-dlp is case-insensitive
+    """
+    # Replace slashes, dashes, underscores, brackets, etc. with spaces
+    q2 = re.sub(r"[^\w]+", " ", q or "")
+    # Collapse whitespace
+    q2 = re.sub(r"\s+", " ", q2).strip()
+    return q2
+
+
 try:  # Optional youtube-search-python provider
     from youtubesearchpython import VideosSearch  # type: ignore
 except Exception:  # pragma: no cover
     VideosSearch = None  # type: ignore
+
 
 def _run_yts_python_search(query: str, limit: int = 10) -> List[YouTubeResult]:
     """Perform a YouTube search using youtube-search-python (default provider)."""
@@ -202,6 +152,7 @@ def _run_yts_python_search(query: str, limit: int = 10) -> List[YouTubeResult]:
         logger.debug("youtubesearchpython raw results: %d", len(results))
     return results
 
+
 def _resolve_provider() -> str:
     provider = os.environ.get("YOUTUBE_SEARCH_PROVIDER")
     if provider:
@@ -218,7 +169,6 @@ def _provider_search(query: str, limit: int) -> List[YouTubeResult]:
     return _run_yt_dlp_search(query, limit=limit)
 
 
-
 def _parse_artists(artists: str) -> List[str]:
     # Split by common separators and clean
     raw = re.split(r"\s*(,|&|;|feat\.|ft\.|with)\s*", artists, flags=re.IGNORECASE)
@@ -232,48 +182,6 @@ def _parse_artists(artists: str) -> List[str]:
             seen.add(k)
             out.append(n)
     return out
-
-
-def _extract_remixer_from_title(title: str) -> Optional[str]:
-    # Examples: "(Sunday Scaries Remix)", "(John Doe Edit)", "(Artist X Mix)"
-    m = re.search(r"\(([^)]+?)\s+(remix|edit|mix)\)", (title or "").lower())
-    if not m:
-        return None
-    return m.group(1).strip()
-
-
-def _has_explicit_version_tag(title: str) -> tuple[bool, bool, bool]:
-    """Return a tuple (is_version, is_explicit_extended, is_explicit_remix_edit).
-
-    We consider explicit version tags such as:
-    - "(Extended Mix)", "- Extended Mix"
-    - "(Club Mix)", "(Club Edit)", "- Club Mix"
-    - "(Something Remix)", "- Something Remix"
-    - "(Something Edit)", "- Something Edit"
-
-    We purposely ignore a bare word "mix" (e.g., "Tech House Mix", "DJ Mix") as a version tag.
-    """
-    t = (title or "").lower()
-    if not t:
-        return (False, False, False)
-    # Disqualify obvious long/DJ mix phrasing from explicit version consideration
-    for h in _LONG_MIX_HINTS:
-        if h in t:
-            return (False, False, False)
-    # Regex for patterns like "(Extended Mix)", "- Extended Mix", "(John Doe Remix)", "- John Doe Remix"
-    # Also allow simple "(Extended)" or "- Extended"
-    ext_patterns = [
-        r"\((?:extended(?: mix)?|club (?:mix|edit)|original mix)\)",
-        r"-\s*(?:extended(?: mix)?|club (?:mix|edit)|original mix)\b",
-    ]
-    remix_patterns = [
-        r"\([^)]*?\b(?:remix|edit)\)",
-        r"-\s*[^-]*?\b(?:remix|edit)\b",
-    ]
-    is_ext = any(re.search(p, t) for p in ext_patterns) or any(k in t for k in ["extended mix", "club mix", "club edit"]) or (" extended" in t)
-    is_remix = any(re.search(p, t) for p in remix_patterns)
-    is_version = is_ext or is_remix
-    return (is_version, is_ext, is_remix)
 
 
 def _build_search_queries(artists: str, title: str, prefer_extended: bool) -> List[str]:
@@ -370,94 +278,17 @@ def _build_search_queries(artists: str, title: str, prefer_extended: bool) -> Li
     return ordered
 
 
-def _extended_mix_bonus(title: str, prefer_extended: bool) -> float:
-    if not prefer_extended:
-        return 0.0
-    t = title.lower()
-    # Stronger bonus for explicit Extended/Club/Remix variants when user prefers them
-    return EXTENDED_BONUS_WEIGHT if any(k in t for k in (_EXTENDED_KEYWORDS + _REMIX_KEYWORDS)) else 0.0
-
-
-def _official_channel_bonus(channel: Optional[str], primary_artist: str) -> float:
-    """Heuristic bonus for official-looking channels.
-
-    Tiers:
-    - +0.30 if channel name suggests official source (contains 'vevo', ' - topic', 'official').
-    - +0.20 if channel name also matches the primary artist name (normalized, space-insensitive).
-    Caps at CHANNEL_BONUS_CAP total (which is intentionally less than EXTENDED_BONUS_WEIGHT).
-    """
-    if not channel:
-        return 0.0
-    c = channel.lower().strip()
-    # Normalize by removing non-alphanumeric to match e.g. 'daftpunk' in 'daftpunkvevo'
-    import re as _re
-    def _norm(s: str) -> str:
-        return _re.sub(r"[^a-z0-9]+", "", s.lower())
-    cn = _norm(c)
-    an = _norm(primary_artist)
-    base = 0.0
-    # Exact channel == artist name → small bonus
-    if an and cn == an:
-        base += CHANNEL_BONUS_EXACT_MATCH_WEIGHT
-    # Treat 'vevo', 'official', and ' - topic' as quasi-official uploads
-    if ("vevo" in c) or ("official" in c) or (" - topic" in c) or ("release - topic" in c):
-        base += CHANNEL_BONUS_OFFICIAL_WEIGHT
-    if an and an in cn:
-        base += CHANNEL_BONUS_ARTIST_SUBSTR_WEIGHT
-    return min(base, CHANNEL_BONUS_CAP)
-
-
-def _text_similarity(norm_query: str, norm_title: str, prefer_extended_mode: bool = False) -> float:
-    # Token overlap metrics
-    q_tokens = set(_normalize_for_tokens(norm_query).split())
-    t_tokens = set(_normalize_for_tokens(norm_title).split())
-    if not q_tokens or not t_tokens:
-        return 0.0
-    inter = len(q_tokens & t_tokens)
-    union = len(q_tokens | t_tokens)
-    jaccard = inter / union
-    # If query has multiple tokens and only 1 overlaps, cap contribution a bit lower (avoid inflated 0.5 on single word like 'dance')
-    if len(q_tokens) >= 2 and inter == 1:
-        jaccard = min(jaccard, 0.35)
-    if not prefer_extended_mode:
-        return jaccard
-    # In extended mode, do not penalize extra tokens like "extended mix" when all query tokens are present.
-    coverage = inter / max(1, len(q_tokens))  # 1.0 if title covers all query tokens
-    return max(jaccard, coverage)
-
-
-def score_result(
-    artists: str,
-    title: str,
-    track_duration_ms: Optional[int],
-    result: YouTubeResult,
-    prefer_extended: bool = False,
-) -> float:
-    """Compute a heuristic score (0..1+) for a YouTube result.
-
-    Components:
-    - Text similarity (0..1)
-    - Duration proximity bonus (<=0.25)
-    - Extended/Club Mix bonus (0.15 when prefer_extended)
-    - Penalty for obvious unmatched tokens (<= -0.15)
-    """
-    norm = normalize_track(artists, title)
-    norm_query = f"{norm.normalized_artists} {norm.normalized_title}".strip()
-    norm_title = re.sub(r"\s+", " ", result.title.lower()).strip()
-
-    # Components: text, duration, extended, channel, tokens_penalty, keywords_penalty
-    text_sim, duration_bonus, ext_bonus, ch_bonus, tokens_penalty, keywords_penalty = get_score_components(
-        norm_query=norm_query,
-        norm_title=norm_title,
-        primary_artist=norm.primary_artist,
-        track_duration_ms=track_duration_ms,
-        result_duration_sec=result.duration_sec,
-        result_title=result.title,
-        result_channel=result.channel,
-        prefer_extended=prefer_extended,
-    )
-    raw = text_sim + duration_bonus + ext_bonus + ch_bonus + tokens_penalty + keywords_penalty
-    return round(raw, 6)
+def _format_duration_for_ranking(duration_sec: Optional[float]) -> str:
+    """Convert duration in seconds to M:SS or H:MM:SS format."""
+    if not duration_sec:
+        return ""
+    duration_sec = int(duration_sec)  # Convert float to int
+    hours = duration_sec // 3600
+    minutes = (duration_sec % 3600) // 60
+    seconds = duration_sec % 60
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
 
 
 def get_score_components(
@@ -471,142 +302,146 @@ def get_score_components(
     result_channel: Optional[str],
     prefer_extended: bool,
 ):
-    """Return individual scoring components as a tuple:
-    (text_similarity, duration_bonus, extended_bonus, channel_bonus, tokens_penalty, keywords_penalty)
-
-    Notes:
-    - tokens_penalty aggregates small penalties for missing query tokens and missing primary artist in title.
-    - keywords_penalty applies stronger penalties for undesirable keywords (lyrics/live/cover/karaoke/etc.).
+    """Legacy compatibility function for get_score_components.
+    
+    Returns old format tuple: (text_similarity, duration_bonus, extended_bonus, 
+                                channel_bonus, tokens_penalty, keywords_penalty)
+    
+    This is kept for backward compatibility with API endpoints.
     """
-    # Identify extended/remix title early, it participates in text and duration components
-    title_l = (result_title or "").lower()
-    # Determine if the title carries an explicit track version tag (extended/club/original mix/remix/edit)
-    is_version_tag, is_explicit_extended, is_explicit_remix = _has_explicit_version_tag(result_title)
-    # Extended mode and bonuses apply to explicit Extended/Club/Original Mix variants, not Remix/Edit
-    is_extended_variant = bool(is_explicit_extended)
-    is_remix_variant = bool(is_explicit_remix)
-    text_sim = _text_similarity(
-        norm_query,
-        norm_title,
-        # Do not elevate coverage for Remix/Edit, only for explicit Extended/Club
-        prefer_extended_mode=(prefer_extended and is_extended_variant),
-    )
-    # Duration component: proportional with relaxed tolerance for Extended/Club/Remix variants.
-    duration_bonus = 0.0
-    if track_duration_ms and result_duration_sec:
-        delta = duration_delta_sec(track_duration_ms, result_duration_sec * 1000)
-        if delta is not None:
-            base_weight = 0.35
-            # If this looks like a long-form mix (e.g., +5 minutes vs track), treat harshly
-            is_long_mix = delta is not None and delta > 300
-            if is_extended_variant and prefer_extended and not is_long_mix:
-                # Extended/remix path: reward positive deltas, penalize negative deltas
-                if delta >= 0:
-                    # Up to +0.12 bonus over the first +150s, plus closeness bonus near target
-                    pos_tol = 150.0
-                    proximity = base_weight * (1 - min(delta, pos_tol) / pos_tol)  # 0.35→0 over +0..+150s
-                    longer = min(0.12, delta / 150.0)
-                    raw = max(0.0, proximity) + longer
-                else:
-                    # Negative delta for an extended/remix is undesirable → penalize down to -0.25
-                    neg_tol = 45.0  # within -45s, small penalty; beyond that, stronger
-                    raw = max(-0.25, base_weight * (delta / neg_tol))
-            else:
-                # Non-extended path OR obvious long mix: prefer exact/close length, penalize by absolute delta
-                tol = 12.0
-                raw = base_weight * (1 - min(abs(delta), tol) / tol)
-                # For very large mismatches, allow negative penalty down to -0.30
-                if abs(delta) > 45:
-                    # scale additional penalty with log growth to avoid extremes
-                    extra = min(0.30, (abs(delta) - 45) / 180.0)
-                    raw -= extra
-                raw = max(raw, -0.30)
-            # cap excessive positives
-            if raw > base_weight + 0.10:
-                raw = base_weight + 0.10
-            duration_bonus = raw
-    # Award extended bonus only for explicit Extended/Club or remix/edit variants when prefer_extended
-    ext_bonus = 0.0
-    if prefer_extended and (is_extended_variant or is_remix_variant):
-        ext_bonus = EXTENDED_BONUS_WEIGHT
-    ch_bonus = _official_channel_bonus(result_channel, primary_artist)
+    # Use the new ranking service to get detailed breakdown
+    query_duration_sec = track_duration_ms // 1000 if track_duration_ms else None
+    data = {
+        "query": {
+            "artists": primary_artist,
+            "title": norm_title,
+            "length": _format_duration_for_ranking(query_duration_sec),
+        },
+        "candidates": [
+            {
+                "id": "dummy",
+                "title": result_title,
+                "channel": result_channel or "",
+                "length": _format_duration_for_ranking(result_duration_sec),
+            }
+        ]
+    }
+    
+    result = _ranking_service.rank_candidates(data)
+    candidates = result.get("candidates", [])
+    
+    if candidates and candidates[0].get("score"):
+        score_dict = candidates[0]["score"]
+        components = score_dict.get("components", {})
+        
+        # Map new breakdown to old format (approximate)
+        # Old format: (text, duration, extended, channel, tokens_penalty, keywords_penalty)
+        # New format has: artist, title, extended, duration
+        
+        # Normalize to old scale (0..1 range)
+        text_sim = (components.get("artist", 0) + components.get("title", 0)) / 200.0
+        duration_bonus = components.get("duration", 0) / 100.0
+        ext_bonus = components.get("extended", 0) / 100.0
+        channel_bonus = 0.0  # Channel is now part of artist_score
+        tokens_penalty = 0.0  # Not applicable in new system
+        keywords_penalty = 0.0  # Not applicable in new system
+        
+        return (
+            round(text_sim, 6),
+            round(duration_bonus, 6),
+            round(ext_bonus, 6),
+            round(channel_bonus, 6),
+            round(tokens_penalty, 6),
+            round(keywords_penalty, 6),
+        )
+    
+    # Fallback: return zeros
+    return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
-    # Token-based penalty (missing primary artist or tokens)
-    tokens_penalty = 0.0
-    if primary_artist.lower() not in norm_title:
-        tokens_penalty -= 0.05
-    for token in norm_query.split():
-        if token not in norm_title:
-            tokens_penalty -= 0.01
 
-    # Keyword-based penalties
-    title_l = (result_title or "").lower()
-    keywords_penalty = 0.0
-    # Strongly discourage karaoke/cover/lyrics/live variants by default
-    if "karaoke" in title_l:
-        keywords_penalty -= 0.35
-    if "cover" in title_l:
-        keywords_penalty -= 0.25
-    if "lyrics" in title_l or "lyric video" in title_l:
-        keywords_penalty -= 0.25
-    if "live" in title_l or "concert" in title_l:
-        keywords_penalty -= 0.20
-    # Penalize DJ/long-mix contexts
-    if any(h in title_l for h in _LONG_MIX_HINTS):
-        keywords_penalty -= 0.35
-    # Slight negative for 'audio' only uploads when not official channel
-    if "audio" in title_l and ch_bonus < 0.20:
-        keywords_penalty -= 0.05
+def score_result(
+    artists: str,
+    title: str,
+    track_duration_ms: Optional[int],
+    result: YouTubeResult,
+    prefer_extended: bool = False,
+) -> float:
+    """Score a YouTube result using the new ranking service.
+    
+    Returns:
+        float: normalized score (0..1+)
+    """
+    # Convert to RankingService format
+    query_duration_sec = track_duration_ms // 1000 if track_duration_ms else None
+    data = {
+        "query": {
+            "artists": artists,
+            "title": title,
+            "length": _format_duration_for_ranking(query_duration_sec),
+        },
+        "candidates": [
+            {
+                "id": result.external_id,
+                "title": result.title,
+                "channel": result.channel or "",
+                "length": _format_duration_for_ranking(result.duration_sec),
+            }
+        ]
+    }
+    
+    # Use RankingService to score
+    result_obj = _ranking_service.rank_candidates(data)
+    candidates = result_obj.get("candidates", [])
+    
+    if candidates:
+        score_dict = candidates[0].get("score", {})
+        # Normalize score to old scale (0..1+) by dividing by 100
+        raw_score = score_dict.get("total", 0)
+        normalized_score = round(raw_score / 100.0, 6)
+        return normalized_score
+    
+    return 0.0
 
-    # Length-identical bonus: identical token set & longer within ratio constraints when prefer_extended
-    if prefer_extended and track_duration_ms and result_duration_sec and result_duration_sec > 0:
-        target_sec = track_duration_ms / 1000.0
-        if target_sec > 0:
-            delta_sec = result_duration_sec - target_sec
-            if delta_sec >= LENGTH_IDENTICAL_MIN_DELTA_SEC:
-                ratio = result_duration_sec / target_sec
-                if ratio <= LENGTH_IDENTICAL_MAX_RATIO:
-                    q_tokens = set(_normalize_for_tokens(norm_query).split())
-                    t_tokens = set(_normalize_for_tokens(norm_title).split())
-                    if q_tokens == t_tokens and q_tokens:
-                        # Neutralize negative duration penalty for longer identical variant
-                        if duration_bonus < 0:
-                            duration_bonus = 0.0
-                        # Compute an aggressive bonus scaling with relative delta & ratio
-                        rel = delta_sec / target_sec
-                        # Base 0.25 plus up to +0.20 from relative length and +0.10 from ratio growth (capped overall)
-                        bonus = 0.25 + min(0.20, rel * 0.40) + min(0.10, (ratio - 1.0) * 0.25)
-                        ext_bonus += min(LENGTH_IDENTICAL_BONUS_CAP, bonus)
 
-    # Extra token penalty / exact token bonus logic
-    try:
-        q_tokens = set(_normalize_for_tokens(norm_query).split())
-        t_tokens = set(_normalize_for_tokens(norm_title).split())
-        if q_tokens and t_tokens:
-            extras = t_tokens - q_tokens
-            missing = q_tokens - t_tokens
-            # We already penalize missing tokens; now penalize surplus when all query tokens are present
-            if not missing and extras:
-                # Apply penalty proportional to surplus size, capped
-                penalty = min(EXTRA_TOKEN_PENALTY_CAP, len(extras) * EXTRA_TOKEN_PENALTY_PER)
-                tokens_penalty -= penalty
-                # Cap duration bonus to avoid long verbose variant dominating
-                if duration_bonus > EXTRA_TOKEN_DURATION_CAP:
-                    duration_bonus = EXTRA_TOKEN_DURATION_CAP
-            elif not missing and not extras:
-                # Perfect token identity → bonus
-                tokens_penalty += EXACT_TOKEN_SET_BONUS
-    except Exception:
-        pass
-
-    return (
-        round(text_sim, 6),
-        round(duration_bonus, 6),
-        round(ext_bonus, 6),
-        round(ch_bonus, 6),
-        round(tokens_penalty, 6),
-        round(keywords_penalty, 6),
-    )
+def score_result_with_breakdown(
+    artists: str,
+    title: str,
+    track_duration_ms: Optional[int],
+    result: YouTubeResult,
+    prefer_extended: bool = False,
+) -> tuple[float, Optional[dict]]:
+    """Score a YouTube result with detailed breakdown.
+    
+    Returns:
+        tuple: (score, score_breakdown_dict or None)
+    """
+    query_duration_sec = track_duration_ms // 1000 if track_duration_ms else None
+    data = {
+        "query": {
+            "artists": artists,
+            "title": title,
+            "length": _format_duration_for_ranking(query_duration_sec),
+        },
+        "candidates": [
+            {
+                "id": result.external_id,
+                "title": result.title,
+                "channel": result.channel or "",
+                "length": _format_duration_for_ranking(result.duration_sec),
+            }
+        ]
+    }
+    
+    result_obj = _ranking_service.rank_candidates(data)
+    candidates = result_obj.get("candidates", [])
+    
+    if candidates:
+        score_dict = candidates[0].get("score", {})
+        raw_score = score_dict.get("total", 0)
+        normalized_score = round(raw_score / 100.0, 6)
+        return (normalized_score, score_dict)
+    
+    return (0.0, None)
 
 
 def _run_yt_dlp_search(query: str, limit: int = 10) -> List[YouTubeResult]:
@@ -956,22 +791,18 @@ def search_youtube(
         if not raw_results and os.environ.get("YOUTUBE_SEARCH_FALLBACK_FAKE") == "1":
             logger.info("Falling back to fake YouTube results for multi-queries: %s", ", ".join(queries[:3]))
             raw_results = fake_results(f"{artists} {title}".strip())
-    # Filter out probable DJ sets/compilations before scoring
-    filtered = [
-        r for r in raw_results
-        if not _is_probable_set(r.title, r.duration_sec, track_duration_ms)
-    ]
-    if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1" and raw_results:
-        logger.debug("Filtered out probable sets: %d (kept %d)", len(raw_results) - len(filtered), len(filtered))
+    
+    # Score all results - RankingService handles filtering via duration penalties
     scored: List[ScoredResult] = []
     slice_cap = max(2, int(limit) if isinstance(limit, int) else 10)
-    for r in filtered[: slice_cap]:
-        score = score_result(artists, title, track_duration_ms, r, prefer_extended=prefer_extended)
-        scored.append(ScoredResult(**r.__dict__, score=score))
+    for r in raw_results[: slice_cap]:
+        score, breakdown = score_result_with_breakdown(artists, title, track_duration_ms, r, prefer_extended=prefer_extended)
+        scored.append(ScoredResult(**r.__dict__, score=score, score_breakdown=breakdown))
     if scored and not any(s.channel for s in scored):
-        for extra in filtered[slice_cap:]:
+        for extra in raw_results[slice_cap:]:
             if extra.channel:
-                scored.append(ScoredResult(**extra.__dict__, score=score_result(artists, title, track_duration_ms, extra, prefer_extended=prefer_extended)))
+                score, breakdown = score_result_with_breakdown(artists, title, track_duration_ms, extra, prefer_extended=prefer_extended)
+                scored.append(ScoredResult(**extra.__dict__, score=score, score_breakdown=breakdown))
                 break
     # Stable deterministic ordering: score desc then external_id asc
     scored.sort(key=lambda s: (-s.score, s.external_id))
