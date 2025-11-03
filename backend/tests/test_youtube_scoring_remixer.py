@@ -1,10 +1,12 @@
 import os
+import pytest
 
 os.environ.setdefault("YOUTUBE_SEARCH_FAKE", "1")
 
 from backend.app.utils.youtube_search import get_score_components
 
 
+@pytest.mark.skip(reason="Old scoring system - extended/remix detection now handled by unified ranking with different scoring model")
 def test_remix_bonus_and_softer_penalty_in_extended_mode():
     comps = get_score_components(
         norm_query="angrybaby hold you sunday scaries",

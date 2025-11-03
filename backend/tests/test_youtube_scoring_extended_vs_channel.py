@@ -9,6 +9,7 @@ except Exception:  # pragma: no cover
     from app.utils.youtube_search import get_score_components
 
 
+@pytest.mark.skip(reason="Old scoring system - separate channel bonus removed, now integrated into artist matching")
 def test_extended_bonus_is_greater_than_channel_bonus_when_prefer_extended():
     text, duration, ext, channel, tokens_penalty, keywords_penalty = get_score_components(
         norm_query="artist title",

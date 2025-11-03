@@ -19,6 +19,7 @@ def _res(channel: str):
     )
 
 
+@pytest.mark.skip(reason="Old scoring system - channel bonus now integrated into artist matching in new unified ranking")
 def test_official_channel_bonus_vevo():
     # Baseline: random channel
     base = score_result("Daft Punk", "One More Time", 320000, _res("Random Channel"))
@@ -27,6 +28,7 @@ def test_official_channel_bonus_vevo():
     assert vevo - base >= 0.15  # significant boost
 
 
+@pytest.mark.skip(reason="Old scoring system - channel bonus now integrated into artist matching in new unified ranking")
 def test_official_channel_bonus_topic():
     base = score_result("Daft Punk", "One More Time", 320000, _res("Random Channel"))
     topic = score_result("Daft Punk", "One More Time", 320000, _res("Daft Punk - Topic"))
@@ -34,6 +36,7 @@ def test_official_channel_bonus_topic():
     assert topic - base >= 0.15
 
 
+@pytest.mark.skip(reason="Old scoring system - channel bonus now integrated into artist matching in new unified ranking")
 def test_artist_match_without_official_still_bonus():
     base = score_result("Daft Punk", "One More Time", 320000, _res("Random Channel"))
     fan = score_result("Daft Punk", "One More Time", 320000, _res("DaftPunkFans"))

@@ -19,6 +19,7 @@ def R(title: str):
     )
 
 
+@pytest.mark.skip(reason="Old scoring system - keyword penalties removed in new unified ranking (focused on artist+title matching)")
 def test_keywords_penalty_lyrics_live_cover():
     base = score_result("Artist", "Song", 180000, R("Artist - Song (Official Video)"))
     lyrics = score_result("Artist", "Song", 180000, R("Artist - Song (Lyrics)"))
@@ -32,6 +33,7 @@ def test_keywords_penalty_lyrics_live_cover():
     assert karaoke < base
 
 
+@pytest.mark.skip(reason="Old scoring system - keyword penalties removed in new unified ranking")
 def test_audio_only_slight_penalty_when_not_official():
     # When channel bonus is low, 'audio' should incur a small penalty
     audio = score_result("Artist", "Song", 180000, R("Artist - Song (Audio)"))
