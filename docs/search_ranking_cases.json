@@ -1,0 +1,610 @@
+[
+  {
+    "query": {
+      "artists": "Block & Crown",
+      "title": "Lonely Heart",
+      "length": "4:00"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "FOXsound Official",
+        "title": "Block & Crown & Paul Parsons - Owner of a Lonely Heart (Original Mix)",
+        "length": "4:51"
+      },
+      {
+        "id": "c2",
+        "channel": "Da Kastro",
+        "title": "Lonely Heart (Original Mix)",
+        "length": "7:47"
+      },
+      {
+        "id": "c3",
+        "channel": "Block & Crown World Wide",
+        "title": "Block & Crown - Lonely Heart",
+        "length": "5:24"
+      }
+    ],
+    "expected_winner": "c3"
+  },
+  {
+    "query": {
+      "artists": "Donny Graves",
+      "title": "Do It Baby",
+      "length": "2:39"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Donny Graves",
+        "title": "Do It Baby",
+        "length": "2:39"
+      },
+      {
+        "id": "c2",
+        "channel": "Da Kastro",
+        "title": "Lonely Heart (Original Mix)",
+        "length": "7:47"
+      }
+    ],
+    "expected_winner": "c1"
+  },
+  {
+    "query": {
+      "artists": "AUSMAX",
+      "title": "Just Work",
+      "length": "3:07"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Deep Tech House ",
+        "title": "AUSMAX  - Needs ( Extended Mix)",
+        "length": "5:33"
+      },
+      {
+        "id": "c2",
+        "channel": "AUSMAX - Topic",
+        "title": "Flow (Original Mix)",
+        "length": "4:37"
+      },
+      {
+        "id": "c3",
+        "channel": "AUSMAX - Topic",
+        "title": "Just Work",
+        "length": "3:08"
+      },
+      {
+        "id": "c4",
+        "channel": "PROFOUND",
+        "title": "Ming - I Work Hard (Valerio Bonfa Remix)",
+        "length": "4:54"
+      },
+      {
+        "id": "c5",
+        "channel": "AUSMAX - Topic",
+        "title": "Inferno",
+        "length": "2:35"
+      },
+      {
+        "id": "c6",
+        "channel": "PROFOUND",
+        "title": "AUSMAX - Work It Out",
+        "length": "5:01"
+      }
+    ],
+    "expected_winner": "c3"
+  },
+  {
+    "query": {
+      "artists": "Dominique Jardin, Cat Dealers",
+      "title": "Up Late",
+      "length": "2:52"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Magnit Relax Music",
+        "title": "Dominique Jardin & Cat Dealers - Up Late (Single) (2025)",
+        "length": "2:52"
+      },
+      {
+        "id": "c2",
+        "channel": "DOMINIQUE JARDIN",
+        "title": "Up Late",
+        "length": "2:53"
+      },
+      {
+        "id": "c3",
+        "channel": "Up All Night",
+        "title": "Dominique Jardin - NSA [Official Visualizer]",
+        "length": "3:18"
+      },
+      {
+        "id": "c4",
+        "channel": "DOMINIQUE JARDIN",
+        "title": "Sun's Gone Dark",
+        "length": "2:27"
+      }
+    ],
+    "expected_winners": ["c1", "c2", "c3"]
+  },
+  {
+    "query": {
+      "artists": "Chapter & Verse",
+      "title": "Sweat It Out",
+      "length": "3:12"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Extended Music Official",
+        "title": "Chapter & Verse - Sweat It Out (Extended Mix)",
+        "length": "4:39"
+      },
+      {
+        "id": "c2",
+        "channel": "Groove Bassment",
+        "title": "Chapter & Verse - Sweat It Out (Extended Mix)",
+        "length": "4:39"
+      },
+      {
+        "id": "c3",
+        "channel": "Smash The House",
+        "title": "Chapter & Verse – Sweat It Out (Visualiser)",
+        "length": "3:25"
+      },
+      {
+        "id": "c4",
+        "channel": "E X O N",
+        "title": "Chapter & Verse - Make You Sweat",
+        "length": "5:06"
+      },
+      {
+        "id": "c5",
+        "channel": "PROFOUND",
+        "title": "Chapter & Verse - Make You Sweat",
+        "length": "5:06"
+      }
+    ],
+    "expected_winners": ["c1", "c2"]
+  },
+  {
+    "query": {
+      "artists": "Danny Rhys, Loz Seka",
+      "title": "Got To Move",
+      "length": "3:05"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "VeryHouseMusic",
+        "title": "Danny Rhys, Loz Seka - Got To Move (Extended Mix)",
+        "length": "5:40"
+      },
+      {
+        "id": "c2",
+        "channel": "ItalianWeeklyPlaylist 🇮🇹",
+        "title": "Danny Rhys, Loz Seka - Got To Move (Extended Mix)",
+        "length": "5:40"
+      },
+      {
+        "id": "c3",
+        "channel": "Lock In Sound",
+        "title": "Danny Rhys, Loz Seka - Got To Move (Extended Mix)",
+        "length": "5:40"
+      },
+      {
+        "id": "c4",
+        "channel": "HOUSE * DEEP * TECH *",
+        "title": "Danny Rhys & Loz Seka - Got To Move (Extended Mix)",
+        "length": "5:36"
+      },
+      {
+        "id": "c5",
+        "channel": "PureHouseMusic 2024",
+        "title": "Danny Rhys, Loz Seka - Got To Move (Extended Mix) [TOOLROOM TRAX]",
+        "length": "5:40"
+      },
+      {
+        "id": "c6",
+        "channel": "Danny Rhys - Topic",
+        "title": "Move On (Extended Mix)",
+        "length": "6:04"
+      }
+    ],
+    "expected_winners": ["c1", "c2", "c3"]
+  },
+  {
+    "query": {
+      "artists": "Nessø",
+      "title": "Poppin'",
+      "length": "2:51"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Relationtuff Music",
+        "title": "Nessø - Poppin' (Extended Mix)",
+        "length": "3:51"
+      },
+      {
+        "id": "c2",
+        "channel": "Nessø",
+        "title": "Nessø - Poppin'",
+        "length": "2:49"
+      },
+      {
+        "id": "c3",
+        "channel": "7clouds Hardstyle",
+        "title": "Nessø - Poppin' (Lyrics)",
+        "length": "2:52"
+      },
+      {
+        "id": "c4",
+        "channel": "Summer Dance Forever",
+        "title": "Ness vs Hassani 2ND ROUND BATTLES Popping Forever - Summer Dance Forever 2017",
+        "length": "2:50"
+      },
+      {
+        "id": "c5",
+        "channel": "BattleBadTV",
+        "title": "NESS WESTGANG - Battle BAD 2025 - Popping Judge Demo",
+        "length": "2:12"
+      },
+      {
+        "id": "c6",
+        "channel": "ushbowwowtv",
+        "title": "NESS POPPIN JUDGE DANCE VISION VOL 11 KIDS",
+        "length": "1:53"
+      }
+    ],
+    "expected_winner": "c1"
+  },
+  {
+    "query": {
+      "artists": "Decker Rush, PhatJazz",
+      "title": "Bustin' Loose",
+      "length": "3:37"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Decker Rush - Topic",
+        "title": "Bustin' Loose",
+        "length": "3:38"
+      },
+      {
+        "id": "c2",
+        "channel": "MaNuLaToR Official",
+        "title": "House Nation 2   Lift Me Up",
+        "length": "3:14"
+      }
+    ],
+    "expected_winner": "c1"
+  },
+  {
+    "query": {
+      "artists": "Disco Dom, Dombresky, KRESPO",
+      "title": "The Apex",
+      "length": "3:27"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Stradderss",
+        "title": "Disco Dom & Dombresky - La Discoteca (Extended Mix) [4K]",
+        "length": "5:23"
+      },
+      {
+        "id": "c2",
+        "channel": "Dombresky",
+        "title": "Disco Dom & KRESPO - The Apex (PRX006)",
+        "length": "3:25"
+      },
+      {
+        "id": "c3",
+        "channel": "Dombresky",
+        "title": "Disco Dom - La Discoteca",
+        "length": "3:04"
+      },
+      {
+        "id": "c4",
+        "channel": "Dombresky",
+        "title": "Drake x Cabin Luv Affair - Nokia (Disco Dom Refunk)",
+        "length": "4:03"
+      },
+      {
+        "id": "c5",
+        "channel": "Dombresky",
+        "title": "Cloonee, Young M.A, InntRaw x Gigi Croccante - Stephanie (Disco Dom Refunk)",
+        "length": "4:09"
+      }
+    ],
+    "expected_winner": "c2"
+  },
+  {
+    "query": {
+      "artists": "Rezone",
+      "title": "Happiness",
+      "length": "2:40"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Rezone - Topic",
+        "title": "Happiness",
+        "length": "2:41"
+      },
+      {
+        "id": "c2",
+        "channel": "Rezone ",
+        "title": "Happy lunar new year - The first 2023 Valorant Edit",
+        "length": "0:26"
+      },
+      {
+        "id": "c3",
+        "channel": "Rezene Teame - Topic",
+        "title": "Happy Birthday",
+        "length": "3:02"
+      },
+      {
+        "id": "c4",
+        "channel": "Sirup Music",
+        "title": "Rezone & Incognet feat. Yana Blinder - Changes (Radio Mix)",
+        "length": "3:10"
+      }
+    ],
+    "expected_winner": "c1"
+  },
+  {
+    "query": {
+      "artists": "B/AN/K",
+      "title": "AK STRAIGHT",
+      "length": "2:57"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Experts Only",
+        "title": "B/AN/K - AK STRAIGHT [Extended Mix]",
+        "length": "5:01"
+      },
+      {
+        "id": "c2",
+        "channel": "Release - Topic",
+        "title": "AK STRAIGHT",
+        "length": "2:58"
+      },
+      {
+        "id": "c3",
+        "channel": "50 Cent",
+        "title": "50 Cent - Straight To The Bank (Official Music Video)",
+        "length": "3:27"
+      }
+    ],
+    "expected_winner": "c1"
+  },
+  {
+    "query": {
+      "artists": "Ofer Katz",
+      "title": "Tereré",
+      "length": "3:32"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "The World Of The Music By Marcos Balbuena ",
+        "title": "TERERÉ - OFER KATZ #dj #djviral #AnyiMusic #argentina ",
+        "length": "3:33"
+      },
+      {
+        "id": "c2",
+        "channel": "Ofer Katz - Topic",
+        "title": "Tereré",
+        "length": "3:33"
+      },
+      {
+        "id": "c3",
+        "channel": "OferDJ",
+        "title": "TERERÉ - OFER KATZ",
+        "length": "0:30"
+      },
+      {
+        "id": "c4",
+        "channel": "OferDJ",
+        "title": "TERERÉ - OFER KATZ",
+        "length": "0:20"
+      }
+    ],
+    "expected_winner": "c2"
+  },
+  {
+    "query": {
+      "artists": "GREG (BR), Pedroz",
+      "title": "Spend Money",
+      "length": "2:55"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Runnin' Music",
+        "title": "Pedroz, GREG - Spend Money (Extended Mix)",
+        "length": "6:01"
+      },
+      {
+        "id": "c2",
+        "channel": "Lock In Sound",
+        "title": "GREG & Pedroz - Spend Money (Extended Mix)",
+        "length": "6:01"
+      },
+      {
+        "id": "c3",
+        "channel": "GREG (BR) - Topic",
+        "title": "Spend Money",
+        "length": "2:56"
+      },
+      {
+        "id": "c4",
+        "channel": "GBM - Topic",
+        "title": "Spend Money",
+        "length": "3:03"
+      },
+      {
+        "id": "c5",
+        "channel": "GREG 99",
+        "title": "GREG & Pedroz - Spend Money",
+        "length": "6:01"
+      },
+      {
+        "id": "c6",
+        "channel": "Ame_Fard",
+        "title": "Spend Money – GREG (BR), Pedroz (BR) | House 2025 [ABRA X] #housemusic",
+        "length": "6:01"
+      },
+      {
+        "id": "c7",
+        "channel": "Sandro M.",
+        "title": "Spend Money",
+        "length": "6:08"
+      }
+    ],
+    "expected_winners": ["c1", "c2", "c3", "c5"]
+  },
+  {
+    "query": {
+      "artists": "Block & Crown, Jackers Revenge",
+      "title": "Nightshift",
+      "length": "4:31"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "The Beat Club by John Peel",
+        "title": "Block & Crown, Jackers Revenge - Nightshift (Original Mix)",
+        "length": "4:32"
+      },
+      {
+        "id": "c2",
+        "channel": "VeryHouseMusic",
+        "title": "Block & Crown - The Night Shift (Nudisco Bounce)",
+        "length": "5:24"
+      },
+      {
+        "id": "c3",
+        "channel": "SPM - Topic",
+        "title": "Night Shift",
+        "length": "5:06"
+      }
+    ],
+    "expected_winner": "c1"
+  },
+  {
+    "query": {
+      "artists": "Öwnboss, Nevve",
+      "title": "Chip",
+      "length": "2:55"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Dj Renato Ortiz",
+        "title": "Öwnboss & Nevve - Chip (Extended Mix)",
+        "length": "3:53"
+      },
+      {
+        "id": "c2",
+        "channel": "Öwnboss",
+        "title": "Chip",
+        "length": "2:56"
+      },
+      {
+        "id": "c3",
+        "channel": "World Music",
+        "title": "ChiP : NeVve | OwNBosS | VIP Club | 2025 Hits @WorldMusic-5 ",
+        "length": "2:56"
+      }
+    ],
+    "expected_winner": "c1"
+  },
+  {
+    "query": {
+      "artists": "Aaron Smith, Alicia Howard, Tony Arzadon",
+      "title": "Someday (Tony Arzadon Radio)",
+      "length": "3:54"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Aaron Smith - Topic",
+        "title": "Someday (Tony Arzadon Extended)",
+        "length": "5:06"
+      },
+      {
+        "id": "c2",
+        "channel": "Aaron Smith - Topic",
+        "title": "Someday (Extended)",
+        "length": "4:59"
+      },
+      {
+        "id": "c3",
+        "channel": "Aaron Smith - Topic",
+        "title": "Someday (Ezel Extended)",
+        "length": "6:12"
+      },
+      {
+        "id": "c4",
+        "channel": "Aaron Smith - Topic",
+        "title": "Someday (Maurice Joshua Remix)",
+        "length": "5:40"
+      }
+    ],
+    "expected_winner": "c1"
+  },
+  {
+    "query": {
+      "artists": "Marten Hørger",
+      "title": "No Matter",
+      "length": "3:02"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "The Myth of NYX",
+        "title": "Marten Hørger - No Ecstasy Love (Extended Mix)",
+        "length": "5:27"
+      },
+      {
+        "id": "c2",
+        "channel": "TROA KS",
+        "title": "[Tech House] Marten Horger - No Matter (Original Mix)",
+        "length": "4:17"
+      },
+      {
+        "id": "c3",
+        "channel": "House Xpression",
+        "title": "Marten Horger - No Matter (Original Mix) (2025)",
+        "length": "4:17"
+      },
+      {
+        "id": "c4",
+        "channel": "MARTEN HØRGER",
+        "title": "MARTEN HØRGER - No Matter",
+        "length": "3:03"
+      },
+      {
+        "id": "c5",
+        "channel": "swerve collective creations",
+        "title": "Marten Hørger - No Matter",
+        "length": "4:17"
+      },
+      {
+        "id": "c6",
+        "channel": "MartenHørgerUnofficialVEVO",
+        "title": "Marten Hørger - No Matter (Audio)",
+        "length": "3:03"
+      }
+    ],
+    "expected_winners": ["c2", "c3", "c5"]
+  }
+]
