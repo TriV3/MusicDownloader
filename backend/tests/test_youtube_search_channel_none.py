@@ -25,8 +25,8 @@ async def test_youtube_search_handles_malformed_channel(monkeypatch):
             pass
         def result(self):
             return {"result": [
-                {"id": "abc123", "title": "Some Video", "link": "https://youtu.be/abc123", "channel": {"name": None, "id": None}, "duration": "3:15"},
-                {"id": "def456", "title": "Other Video", "link": "https://youtu.be/def456", "channel": {"name": "Channel OK", "id": "chan2"}, "duration": "4:05"},
+                {"id": "abc123", "title": "Ausmax - Feel Good", "link": "https://youtu.be/abc123", "channel": {"name": None, "id": None}, "duration": "3:15"},
+                {"id": "def456", "title": "Ausmax - Feel Good (Official)", "link": "https://youtu.be/def456", "channel": {"name": "Channel OK", "id": "chan2"}, "duration": "4:05"},
             ]}
         def next(self):
             return {"result": []}
