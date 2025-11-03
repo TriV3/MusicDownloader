@@ -13,6 +13,41 @@
 			"group": "test"
 		},
 		{
+			"label": "Test Ranking Algorithm",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				".venv\\Scripts\\python -m pytest backend/tests/test_ranking_service.py -v --tb=short"
+			],
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			},
+			"group": {
+				"kind": "test",
+				"isDefault": false
+			}
+		},
+		{
+			"label": "Test Ranking Algorithm (Detailed)",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				".venv\\Scripts\\python -m pytest backend/tests/test_ranking_service.py -vv --tb=long -s"
+			],
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			},
+			"group": "test"
+		},
+		{
 			"label": "Build frontend (vite)",
 			"type": "shell",
 			"command": "cmd.exe",
