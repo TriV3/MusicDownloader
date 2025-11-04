@@ -9,8 +9,6 @@ export const CandidatesPanel: React.FC = () => {
   const [candidates, setCandidates] = React.useState<Candidate[]>([])
   const [sort, setSort] = React.useState<'score' | 'duration_delta'>('score')
   const [manual, setManual] = React.useState({ provider: 'youtube', external_id: '', url: '', title: '', duration_sec: '', score: '' })
-  const [ytPreferExtended, setYtPreferExtended] = React.useState(true)
-  const [ytPersist, setYtPersist] = React.useState(true)
   const [ytLoading, setYtLoading] = React.useState(false)
   const [ytStatus, setYtStatus] = React.useState<string>('')
   const [strict, setStrict] = React.useState(true)
@@ -27,7 +25,7 @@ export const CandidatesPanel: React.FC = () => {
 
   const load = React.useCallback(() => {
     if (selectedTrack == null) { setCandidates([]); return }
-    const params = new URLSearchParams({ track_id: String(selectedTrack), sort, prefer_extended: String(ytPreferExtended) })
+    const params = new URLSearchParams({ track_id: String(selectedTrack), sort })
     // Pass strict filter intent to the server so negatives are hidden there too
     if (strict) {
       params.set('min_score', String(MIN_SCORE))
@@ -53,7 +51,7 @@ export const CandidatesPanel: React.FC = () => {
         }
       })
       .catch(() => {})
-  }, [selectedTrack, sort, ytPreferExtended, getDisplayScore, strict])
+  }, [selectedTrack, sort, getDisplayScore, strict])
 
   React.useEffect(() => { load() }, [load])
 
@@ -83,7 +81,7 @@ export const CandidatesPanel: React.FC = () => {
       const trackResponse = await fetch(`/api/v1/tracks/${selectedTrack}`)
       const trackData = trackResponse.ok ? await trackResponse.json() : null
 
-      const params = new URLSearchParams({ prefer_extended: String(ytPreferExtended), persist: String(ytPersist) })
+      const params = new URLSearchParams({ persist: 'true' })
       const r = await fetch(`/api/v1/tracks/${selectedTrack}/youtube/search?` + params.toString())
       if (!r.ok) {
         const msg = await r.text().catch(() => '')
@@ -122,7 +120,7 @@ export const CandidatesPanel: React.FC = () => {
         await load()
         // Notify other panels if needed
         window.dispatchEvent(new Event('candidates:changed'))
-        setYtStatus(ytPersist ? 'Search saved candidates.' : 'Search completed (not persisted).')
+        setYtStatus('Search saved candidates.')
       }
     } catch (e: any) {
       console.error('YouTube search error', e)
@@ -176,12 +174,6 @@ export const CandidatesPanel: React.FC = () => {
         <div style={{ marginLeft: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <button disabled={selectedTrack == null || ytLoading} onClick={runYouTubeSearch}>{ytLoading ? 'Searching…' : 'YouTube Search'}</button>
           {ytStatus && <span style={{ color: '#555' }}>{ytStatus}</span>}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <input type='checkbox' checked={ytPreferExtended} onChange={e => setYtPreferExtended(e.target.checked)} /> Prefer Extended/Club Mix
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <input type='checkbox' checked={ytPersist} onChange={e => setYtPersist(e.target.checked)} /> Persist
-          </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 4 }} title='When unchecked, show all candidates (no score limit)'>
             <input type='checkbox' checked={strict} onChange={e => setStrict(e.target.checked)} /> Strict filter (score ≥ 0.50; unchecked = no limit)
           </label>
@@ -223,7 +215,7 @@ export const CandidatesPanel: React.FC = () => {
                       )}
                     </td>
                     <td>{renderSourceCell(c, expanded, setExpanded, rowKey)}</td>
-                    <td>{getDisplayScore(c).toFixed(3)}</td>
+                    <td>{getDisplayScore(c).toFixed(2)}</td>
                     <td>{c.duration_sec != null ? formatHMS(c.duration_sec) : '-'}</td>
                     <td>{renderSignedDelta(trackDurationMs, c.duration_sec, c.duration_delta_sec)}</td>
                     <td>
@@ -407,23 +399,23 @@ function renderBadge(label: string, value: number, details?: any) {
   if (details) {
     const parts: string[] = []
     if (label === 'Extended') {
-      if (details.extended_base != null) parts.push(`base=${details.extended_base.toFixed(3)}`)
-      if (details.extended_length_bonus) parts.push(`length_bonus=+${details.extended_length_bonus.toFixed(3)}`)
+      if (details.extended_base != null) parts.push(`base=${details.extended_base.toFixed(2)}`)
+      if (details.extended_length_bonus) parts.push(`length_bonus=+${details.extended_length_bonus.toFixed(2)}`)
     } else if (label === 'Penalty') {
-      if (details.tokens_penalty != null) parts.push(`tokens=${details.tokens_penalty.toFixed(3)}`)
-      if (details.keywords_penalty != null) parts.push(`keywords=${details.keywords_penalty.toFixed(3)}`)
+      if (details.tokens_penalty != null) parts.push(`tokens=${details.tokens_penalty.toFixed(2)}`)
+      if (details.keywords_penalty != null) parts.push(`keywords=${details.keywords_penalty.toFixed(2)}`)
     } else if (label === 'Text') {
-      if (details.text_similarity != null) parts.push(`similarity=${details.text_similarity.toFixed(3)}`)
+      if (details.text_similarity != null) parts.push(`similarity=${details.text_similarity.toFixed(2)}`)
     } else if (label === 'Duration') {
-      if (details.duration_bonus != null) parts.push(`bonus=${details.duration_bonus.toFixed(3)}`)
+      if (details.duration_bonus != null) parts.push(`bonus=${details.duration_bonus.toFixed(2)}`)
     } else if (label === 'Channel') {
-      if (details.channel_bonus != null) parts.push(`bonus=${details.channel_bonus.toFixed(3)}`)
+      if (details.channel_bonus != null) parts.push(`bonus=${details.channel_bonus.toFixed(2)}`)
     }
     if (parts.length) title = `${label}: ${parts.join(', ')}`
   }
   return (
     <span style={{ background: bg, color, borderRadius: 4, padding: '2px 6px', fontSize: 12 }} title={title}>
-      {label}: {sign}{abs.toFixed(3)}
+      {label}: {sign}{abs.toFixed(2)}
     </span>
   )
 }

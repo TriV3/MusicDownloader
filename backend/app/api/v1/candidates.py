@@ -33,34 +33,32 @@ def _attach_computed(track: Optional[Track], cand: SearchCandidate) -> SearchCan
     base.duration_delta_sec = delta
     # Attach score breakdown when provider is youtube and track context is available
     if cand.provider == SearchProvider.youtube and track is not None:
-        norm = normalize_track(track.artists, track.title)
         comps = get_score_components(
-            norm_query=f"{norm.normalized_artists} {norm.normalized_title}".strip(),
-            norm_title=re.sub(r"\s+", " ", (cand.title or "").lower()).strip(),
-            primary_artist=norm.primary_artist,
+            query_artists=track.artists,
+            query_title=track.title,
             track_duration_ms=track.duration_ms,
             result_duration_sec=cand.duration_sec,
             result_title=cand.title,
             result_channel=cand.channel,
-            prefer_extended=False,  # list endpoint not aware of current preference; default false
         )
-        # comps = (text, duration, extended, channel, tokens_penalty, keywords_penalty)
-        total = round(sum(comps), 6)
+        # comps = (artist, title, extended, duration, penalty, total)
+        # Use the total score from RankingService (last element)
+        total = comps[5]
         base.score_breakdown = SearchCandidateRead.ScoreBreakdown(
             text=comps[0],
-            duration=comps[1],
+            duration=comps[3],
             extended=comps[2],
-            channel=comps[3],
-            penalty=comps[4] + comps[5],
+            channel=comps[0],  # Channel score is included in artist score
+            penalty=comps[4],
             total=total,
             details=SearchCandidateRead.ScoreBreakdown.ScoreDetails(
-                text_similarity=comps[0],
-                duration_bonus=comps[1],
+                text_similarity=comps[1],
+                duration_bonus=comps[3],
                 extended_base=comps[2],
-                extended_length_bonus=None,  # populated only in prefer_extended recalculation path if length bonus applied
-                channel_bonus=comps[3],
-                tokens_penalty=comps[4],
-                keywords_penalty=comps[5],
+                extended_length_bonus=None,
+                channel_bonus=0.0,  # Channel is part of artist score
+                tokens_penalty=0.0,
+                keywords_penalty=0.0,
             ),
         )
     return base
@@ -72,7 +70,6 @@ async def list_candidates(
     track_id: Optional[int] = Query(None),
     sort: Optional[str] = Query(None, description="score (default desc) | duration_delta"),
     chosen_only: bool = Query(False),
-    prefer_extended: bool = Query(False, description="When true, compute breakdown with extended preference"),
     min_score: Optional[float] = Query(None, description="Minimum score threshold to include non-chosen candidates"),
     drop_negative: Optional[bool] = Query(None, description="When true, exclude candidates with negative score (non-chosen)"),
 ):
@@ -95,48 +92,8 @@ async def list_candidates(
     track_obj = None
     if track_id is not None:
         track_obj = await session.get(Track, track_id)
-    # Compute breakdowns with awareness of extended preference when requested
-    def _attach_with_pref(c: SearchCandidate):
-        base = _attach_computed(track_obj, c)
-        if base.score_breakdown and track_obj is not None and c.provider == SearchProvider.youtube:
-            # Recompute breakdown with prefer_extended if requested
-            if prefer_extended:
-                norm = normalize_track(track_obj.artists, track_obj.title)
-                comps = get_score_components(
-                    norm_query=f"{norm.normalized_artists} {norm.normalized_title}".strip(),
-                    norm_title=re.sub(r"\s+", " ", (c.title or "").lower()).strip(),
-                    primary_artist=norm.primary_artist,
-                    track_duration_ms=track_obj.duration_ms,
-                    result_duration_sec=c.duration_sec,
-                    result_title=c.title,
-                    result_channel=c.channel,
-                    prefer_extended=True,
-                )
-                total = round(sum(comps), 6)
-                # Attempt to detect if extended bonus includes length-identical augmentation by difference from EXTENDED_BONUS_WEIGHT
-                from ...utils.youtube_search import EXTENDED_BONUS_WEIGHT  # type: ignore
-                extended_length_bonus = None
-                if comps[2] > EXTENDED_BONUS_WEIGHT:
-                    extended_length_bonus = round(comps[2] - EXTENDED_BONUS_WEIGHT, 6)
-                base.score_breakdown = type(base.score_breakdown)(
-                    text=comps[0],
-                    duration=comps[1],
-                    extended=comps[2],
-                    channel=comps[3],
-                    penalty=comps[4] + comps[5],
-                    total=total,
-                    details=type(base.score_breakdown.details or SearchCandidateRead.ScoreBreakdown.ScoreDetails())(
-                        text_similarity=comps[0],
-                        duration_bonus=comps[1],
-                        extended_base=min(comps[2], EXTENDED_BONUS_WEIGHT),
-                        extended_length_bonus=extended_length_bonus,
-                        channel_bonus=comps[3],
-                        tokens_penalty=comps[4],
-                        keywords_penalty=comps[5],
-                    ),
-                )
-        return base
-    enriched = [_attach_with_pref(c) for c in rows]
+    # Compute breakdowns (RankingService handles all scoring logic)
+    enriched = [_attach_computed(track_obj, c) for c in rows]
     # Apply server-side filtering: drop negative scores by default and honor optional min score.
     def _env_min_score() -> Optional[float]:
         try:

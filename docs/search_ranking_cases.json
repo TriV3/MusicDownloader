@@ -606,5 +606,63 @@
       }
     ],
     "expected_winners": ["c2", "c3", "c5"]
+  },
+  {
+    "query": {
+      "artists": "Julian Jordan, EJ3000",
+      "title": "Grind It",
+      "length": "3:05"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "MAXOUXAX",
+        "title": "Julian Jordan & EJ3000 - Grind It (Extended Mix)",
+        "length": "4:04"
+      },
+      {
+        "id": "c2",
+        "channel": "Colorave Records",
+        "title": "Julian Jordan & EJ3000 - Grind It (Extended Mix)",
+        "length": "4:04"
+      },
+      {
+        "id": "c3",
+        "channel": "STMPD RCRDS",
+        "title": "Julian Jordan & EJ3000 - Grind It",
+        "length": "3:05"
+      },
+      {
+        "id": "c4",
+        "channel": "Bass House Music",
+        "title": "Julian Jordan & EJ3000 - Grind It",
+        "length": "3:06"
+      },
+      {
+        "id": "c5",
+        "channel": "Andrey Bakhtin",
+        "title": "Julian Jordan & EJ3000 - Grind It",
+        "length": "3:06"
+      },
+      {
+        "id": "c6",
+        "channel": "MashFusion",
+        "title": "Julian Jordan & EJ3000 - Grind It [STMPD]",
+        "length": "3:01"
+      },
+      {
+        "id": "c7",
+        "channel": "DJ LUAM",
+        "title": "JULIAN JORDAN GRIND IT E EJ3000 05/09/2025",
+        "length": "0:51"
+      },
+      {
+        "id": "c8",
+        "channel": "TrulyEDM | Electronic Dance Music",
+        "title": "Julian Jordan & EJ3000 - Grind It | BASS HOUSE | EDM | House Music) 🎶",
+        "length": "3:06"
+      }
+    ],
+    "expected_winners": ["c1", "c2"]
   }
 ]

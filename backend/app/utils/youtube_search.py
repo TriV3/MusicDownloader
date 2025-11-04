@@ -293,28 +293,35 @@ def _format_duration_for_ranking(duration_sec: Optional[float]) -> str:
 
 def get_score_components(
     *,
-    norm_query: str,
-    norm_title: str,
-    primary_artist: str,
+    query_artists: str,
+    query_title: str,
     track_duration_ms: Optional[int],
     result_duration_sec: Optional[int],
     result_title: str,
     result_channel: Optional[str],
-    prefer_extended: bool,
+    # Legacy params kept for backward compatibility but ignored
+    norm_query: str = "",
+    norm_title: str = "",
+    primary_artist: str = "",
 ):
-    """Legacy compatibility function for get_score_components.
+    """Compute score components using RankingService.
     
-    Returns old format tuple: (text_similarity, duration_bonus, extended_bonus, 
-                                channel_bonus, tokens_penalty, keywords_penalty)
+    Returns tuple: (artist_score, title_score, extended_score, duration_score, penalty, total_score)
     
-    This is kept for backward compatibility with API endpoints.
+    This function uses RankingService to compute scores and returns them in a tuple format.
+    The last element (index 5) is the total score from RankingService - this is what should
+    be used for ranking and display.
     """
+    # Use query_artists and query_title if provided, otherwise fall back to legacy params
+    artists = query_artists or primary_artist
+    title = query_title or norm_title
+    
     # Use the new ranking service to get detailed breakdown
     query_duration_sec = track_duration_ms // 1000 if track_duration_ms else None
     data = {
         "query": {
-            "artists": primary_artist,
-            "title": norm_title,
+            "artists": artists,
+            "title": title,
             "length": _format_duration_for_ranking(query_duration_sec),
         },
         "candidates": [
@@ -333,26 +340,18 @@ def get_score_components(
     if candidates and candidates[0].get("score"):
         score_dict = candidates[0]["score"]
         components = score_dict.get("components", {})
+        total = score_dict.get("total", 0)
         
-        # Map new breakdown to old format (approximate)
-        # Old format: (text, duration, extended, channel, tokens_penalty, keywords_penalty)
-        # New format has: artist, title, extended, duration
-        
-        # Normalize to old scale (0..1 range)
-        text_sim = (components.get("artist", 0) + components.get("title", 0)) / 200.0
-        duration_bonus = components.get("duration", 0) / 100.0
-        ext_bonus = components.get("extended", 0) / 100.0
-        channel_bonus = 0.0  # Channel is now part of artist_score
-        tokens_penalty = 0.0  # Not applicable in new system
-        keywords_penalty = 0.0  # Not applicable in new system
-        
+        # Return components and total from RankingService
+        # Format: (artist, title, extended, duration, penalty, total)
+        # Penalty is always 0 in new system (penalties are already included in components)
         return (
-            round(text_sim, 6),
-            round(duration_bonus, 6),
-            round(ext_bonus, 6),
-            round(channel_bonus, 6),
-            round(tokens_penalty, 6),
-            round(keywords_penalty, 6),
+            round(components.get("artist", 0), 2),
+            round(components.get("title", 0), 2),
+            round(components.get("extended", 0), 2),
+            round(components.get("duration", 0), 2),
+            0.0,  # penalty (not used in new system)
+            round(total, 2),  # TOTAL SCORE - this is what should be used for ranking
         )
     
     # Fallback: return zeros

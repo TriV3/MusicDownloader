@@ -283,16 +283,13 @@ async def youtube_search_track(
         # Return transient scored list
         from ...utils.youtube_search import get_score_components  # type: ignore
         for sr in scored:
-            norm = normalize_track(track.artists, track.title)
             comps = get_score_components(
-                norm_query=f"{norm.normalized_artists} {norm.normalized_title}".strip(),
-                norm_title=re.sub(r"\s+", " ", sr.title.lower()).strip(),
-                primary_artist=norm.primary_artist,
+                query_artists=track.artists,
+                query_title=track.title,
                 track_duration_ms=track.duration_ms,
                 result_duration_sec=sr.duration_sec,
                 result_title=sr.title,
                 result_channel=sr.channel,
-                prefer_extended=prefer_extended,
             )
             out.append(
                 SearchCandidateRead(
@@ -310,19 +307,19 @@ async def youtube_search_track(
                     duration_delta_sec=duration_delta_sec(track.duration_ms, sr.duration_sec * 1000) if (track.duration_ms and sr.duration_sec) else None,  # type: ignore[arg-type]
                     score_breakdown=SearchCandidateRead.ScoreBreakdown(
                         text=comps[0],
-                        duration=comps[1],
+                        duration=comps[3],
                         extended=comps[2],
-                        channel=comps[3],
-                        penalty=comps[4] + comps[5],
-                        total=round(sum(comps), 6),
+                        channel=comps[0],
+                        penalty=comps[4],
+                        total=comps[5],
                         details=SearchCandidateRead.ScoreBreakdown.ScoreDetails(
-                            text_similarity=comps[0],
-                            duration_bonus=comps[1],
+                            text_similarity=comps[1],
+                            duration_bonus=comps[3],
                             extended_base=comps[2],
                             extended_length_bonus=None,
-                            channel_bonus=comps[3],
-                            tokens_penalty=comps[4],
-                            keywords_penalty=comps[5],
+                            channel_bonus=0.0,
+                            tokens_penalty=0.0,
+                            keywords_penalty=0.0,
                         ),
                     ),
                 )
