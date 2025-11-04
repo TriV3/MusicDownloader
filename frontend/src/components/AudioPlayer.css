@@ -245,19 +245,27 @@
 /* Responsive design */
 @media (max-width: 768px) {
   .audio-player {
-    width: 95%;
+    width: calc(100% - 20px);
     padding: var(--spacing-md);
     bottom: 10px;
+    left: 10px;
+    transform: none;
+    max-width: none;
   }
   
   .audio-player-header {
     gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
   }
   
   .play-button {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     font-size: 1rem;
+  }
+  
+  .track-info {
+    max-width: calc(100% - 150px);
   }
   
   .track-title {
@@ -274,5 +282,45 @@
   
   .waveform-container {
     height: 50px;
+  }
+}
+
+@media (max-width: 480px) {
+  .audio-player {
+    width: calc(100% - 10px);
+    padding: var(--spacing-sm);
+    bottom: 5px;
+    left: 5px;
+    border-radius: var(--radius-md);
+  }
+  
+  .audio-player-header {
+    gap: var(--spacing-xs);
+  }
+  
+  .play-button {
+    width: 40px;
+    height: 40px;
+    font-size: 0.875rem;
+  }
+  
+  .track-info {
+    max-width: calc(100% - 120px);
+  }
+  
+  .track-title {
+    font-size: 0.8125rem;
+  }
+  
+  .track-artist {
+    font-size: 0.75rem;
+  }
+  
+  .time-display {
+    font-size: 0.75rem;
+  }
+  
+  .waveform-container {
+    height: 40px;
   }
 }

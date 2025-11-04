@@ -167,28 +167,128 @@
 }
 
 /* Responsive design */
+@media (max-width: 1024px) {
+  .playlists-table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
 @media (max-width: 768px) {
+  .playlists-page {
+    padding: var(--spacing-md);
+  }
+
+  .playlists-header {
+    flex-direction: column;
+    gap: var(--spacing-md);
+    align-items: flex-start;
+    margin-bottom: var(--spacing-lg);
+  }
+  
+  .playlists-title {
+    font-size: 1.5rem;
+  }
+  
   .playlists-controls {
     flex-direction: column;
     align-items: stretch;
+    padding: var(--spacing-md);
+    gap: var(--spacing-md);
   }
   
-  .playlists-controls > * {
-    flex: 1;
-    text-align: center;
+  .playlists-controls button {
+    width: 100%;
+    padding: var(--spacing-md);
+    font-size: 0.9375rem;
+  }
+  
+  .playlists-controls label {
+    justify-content: center;
+    padding: var(--spacing-sm);
   }
   
   .playlists-status {
     margin-left: 0;
-    margin-top: var(--spacing-sm);
+    text-align: center;
+    width: 100%;
   }
   
   .playlists-table {
-    font-size: 0.8125rem;
+    display: block;
+    overflow-x: auto;
   }
   
-  .playlists-table thead th,
+  .playlists-table thead {
+    display: none;
+  }
+  
+  .playlists-table tbody {
+    display: block;
+  }
+  
+  .playlists-table tbody tr {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: var(--spacing-md);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+  }
+  
   .playlists-table tbody td {
-    padding: var(--spacing-xs) var(--spacing-sm);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-xs) 0;
+    border: none;
+  }
+  
+  .playlists-table tbody td:first-child {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  
+  .playlists-table tbody td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-right: var(--spacing-sm);
+  }
+  
+  .playlists-table .playlist-name {
+    font-size: 0.875rem;
+  }
+  
+  .playlists-table .playlist-owner {
+    font-size: 0.8125rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .playlists-page {
+    padding: var(--spacing-sm);
+  }
+  
+  .playlists-title {
+    font-size: 1.25rem;
+  }
+  
+  .playlists-controls {
+    padding: var(--spacing-sm);
+  }
+  
+  .playlists-controls button {
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: 0.875rem;
+  }
+  
+  .playlists-table tbody tr {
+    padding: var(--spacing-sm);
+  }
+  
+  .playlists-table .playlist-id {
+    font-size: 0.75rem;
+    word-break: break-all;
   }
 }

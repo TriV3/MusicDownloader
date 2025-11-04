@@ -99,6 +99,63 @@
   flex-shrink: 0;
 }
 
+/* Mobile Menu Button */
+.mobile-menu-btn {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--spacing-xs);
+  z-index: 1001;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.mobile-menu-btn:hover {
+  opacity: 0.7;
+}
+
+.mobile-menu-btn:focus {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Hamburger Icon */
+.hamburger {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 24px;
+  height: 20px;
+  justify-content: center;
+}
+
+.hamburger span {
+  display: block;
+  width: 100%;
+  height: 2px;
+  background-color: var(--text-primary);
+  border-radius: 2px;
+  transition: all 0.3s ease-in-out;
+}
+
+.hamburger.open span:nth-child(1) {
+  transform: translateY(6px) rotate(45deg);
+}
+
+.hamburger.open span:nth-child(2) {
+  opacity: 0;
+}
+
+.hamburger.open span:nth-child(3) {
+  transform: translateY(-6px) rotate(-45deg);
+}
+
+/* Desktop Only */
+.desktop-only {
+  display: inline-flex;
+}
+
 /* Mobile Responsive */
 @media (max-width: 768px) {
   .header-container {
@@ -106,8 +163,52 @@
     height: 56px;
   }
   
+  .desktop-only {
+    display: none !important;
+  }
+  
+  .mobile-menu-btn {
+    display: block;
+  }
+  
   .header-nav {
-    display: none; /* Could be replaced with a mobile menu later */
+    position: fixed;
+    top: 56px;
+    right: 0;
+    bottom: 0;
+    width: 280px;
+    max-width: 80vw;
+    background-color: var(--bg-primary);
+    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
+    padding: var(--spacing-lg);
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: var(--spacing-xs);
+    transform: translateX(100%);
+    transition: transform 0.3s ease-in-out;
+    overflow-y: auto;
+    z-index: 1000;
+  }
+  
+  .header-nav.mobile-menu-open {
+    transform: translateX(0);
+  }
+  
+  .nav-link {
+    padding: var(--spacing-md);
+    text-align: left;
+    border-radius: var(--radius-md);
+    font-size: 1rem;
+  }
+  
+  .nav-link.active::after {
+    display: none;
+  }
+  
+  .nav-link.active {
+    background-color: rgba(37, 99, 235, 0.15);
+    font-weight: 600;
   }
   
   .brand-text {
@@ -120,8 +221,12 @@
 }
 
 @media (max-width: 640px) {
-  .header-actions .action-btn {
-    padding: var(--spacing-xs) var(--spacing-sm);
-    font-size: 0.75rem;
+  .header-nav {
+    width: 240px;
+  }
+  
+  .nav-link {
+    font-size: 0.9375rem;
+    padding: var(--spacing-sm) var(--spacing-md);
   }
 }

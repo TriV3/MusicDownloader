@@ -368,13 +368,78 @@
   }
 }
 
+@media (max-width: 1024px) {
+  .tracks-table .col-duration,
+  .tracks-table .col-dates {
+    display: none;
+  }
+  
+  .tracks-table .col-artists,
+  .tracks-table .col-title {
+    max-width: 180px;
+  }
+}
+
 @media (max-width: 768px) {
+  .tracks-page {
+    padding: var(--spacing-md);
+  }
+
+  .tracks-header {
+    flex-direction: column;
+    gap: var(--spacing-md);
+    align-items: flex-start;
+    margin-bottom: var(--spacing-lg);
+  }
+  
+  .tracks-title {
+    font-size: 1.5rem;
+  }
+
+  .tracks-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-sm);
+  }
+  
+  .tracks-controls select,
+  .tracks-controls button {
+    width: 100%;
+  }
+  
   .tracks-table {
+    display: block;
+    overflow-x: auto;
     font-size: 0.75rem;
+  }
+  
+  .tracks-table thead th {
+    font-size: 0.6875rem;
+    padding: var(--spacing-xs);
+  }
+  
+  .tracks-table thead input,
+  .tracks-table thead select {
+    font-size: 0.625rem;
+    min-width: 40px;
   }
   
   .tracks-table tbody tr {
     height: 48px;
+  }
+  
+  .tracks-table tbody td {
+    font-size: 0.75rem;
+    padding: var(--spacing-xs);
+  }
+  
+  .tracks-table .col-id {
+    width: 40px;
+    font-size: 0.6875rem;
+  }
+  
+  .tracks-table .col-cover {
+    width: 48px;
   }
   
   .tracks-table .col-cover img,
@@ -386,14 +451,81 @@
   .tracks-table .col-artists,
   .tracks-table .col-title {
     max-width: 120px;
+    font-size: 0.75rem;
   }
   
-  .tracks-table .col-dates {
+  .tracks-table .col-actions {
+    width: 60px;
+  }
+  
+  .tracks-table .col-actions a,
+  .tracks-table .col-actions button {
+    font-size: 0.5625rem;
+    padding: 2px 4px;
+    min-width: 24px;
+  }
+}
+
+@media (max-width: 640px) {
+  .tracks-page {
+    padding: var(--spacing-sm);
+  }
+  
+  .tracks-title {
+    font-size: 1.25rem;
+  }
+  
+  .tracks-table .col-id {
     display: none;
   }
   
-  .tracks-controls {
-    flex-direction: column;
-    align-items: stretch;
+  .tracks-table .col-artists {
+    max-width: 100px;
+  }
+  
+  .tracks-table .col-title {
+    max-width: 100px;
+  }
+  
+  .tracks-table .col-actions {
+    width: 50px;
+  }
+}
+
+@media (max-width: 480px) {
+  .tracks-table {
+    font-size: 0.6875rem;
+  }
+  
+  .tracks-table .col-downloaded {
+    width: 30px;
+    font-size: 0.875rem;
+  }
+  
+  .tracks-table .col-cover {
+    width: 40px;
+  }
+  
+  .tracks-table .col-cover img,
+  .tracks-table .col-cover .no-image {
+    width: 28px;
+    height: 28px;
+  }
+  
+  .tracks-table .col-artists,
+  .tracks-table .col-title {
+    max-width: 80px;
+    font-size: 0.6875rem;
+  }
+  
+  .tracks-table .col-actions {
+    width: 40px;
+  }
+  
+  .tracks-table .col-actions a,
+  .tracks-table .col-actions button {
+    font-size: 0.5rem;
+    padding: 1px 2px;
+    min-width: 20px;
   }
 }
