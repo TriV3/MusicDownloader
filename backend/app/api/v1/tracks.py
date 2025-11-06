@@ -113,6 +113,116 @@ async def list_tracks_no_slash(
     return await list_tracks(session=session, q=q, playlist_id=playlist_id, limit=limit)
 
 
+@router.get("/with_playlist_info", response_model=List[dict])
+async def list_tracks_with_playlist_info(
+    session: AsyncSession = Depends(get_session),
+    q: Optional[str] = Query(None, description="Filter by title/artists contains (case-insensitive)"),
+    playlist_id: Optional[int] = Query(None, description="Filter by playlist id"),
+    track_id: Optional[int] = Query(None, description="Filter by specific track id"),
+    sort_by: Optional[str] = Query("updated_at", description="Sort by: updated_at, release_date, playlist_added_at"),
+    sort_order: Optional[str] = Query("desc", description="Sort order: asc or desc"),
+    limit: int = Query(100, ge=1, le=1000),
+):
+    """Return tracks enriched with playlist information for enhanced sorting and display."""
+    from sqlalchemy import func, case
+    from ...db.models.models import Playlist, Download, DownloadStatus  # type: ignore
+    
+    # Base query with playlist join and download info
+    stmt = (
+        select(
+            Track,
+            PlaylistTrack.added_at.label("playlist_added_at"),
+            PlaylistTrack.position.label("playlist_position"),
+            Playlist.name.label("playlist_name"),
+            Download.finished_at.label("downloaded_at")
+        )
+        .outerjoin(PlaylistTrack, PlaylistTrack.track_id == Track.id)
+        .outerjoin(Playlist, Playlist.id == PlaylistTrack.playlist_id)
+        .outerjoin(Download, (Download.track_id == Track.id) & (Download.status == DownloadStatus.done))
+    )
+
+    # Filter by search query
+    if q:
+        from sqlalchemy import or_
+        like = f"%{q.lower()}%"
+        stmt = stmt.where(
+            or_(func.lower(Track.title).like(like), func.lower(Track.artists).like(like))
+        )
+
+    # Filter by specific playlist
+    if playlist_id is not None:
+        stmt = stmt.where(PlaylistTrack.playlist_id == playlist_id)
+
+    # Filter by specific track ID
+    if track_id is not None:
+        stmt = stmt.where(Track.id == track_id)
+
+    # Determine sort column
+    sort_column = desc(Track.updated_at)  # default
+    if sort_by == "release_date":
+        if sort_order == "asc":
+            sort_column = asc(Track.release_date.nullslast())
+        else:
+            sort_column = desc(Track.release_date.nullslast())
+    elif sort_by == "playlist_added_at":
+        if sort_order == "asc":
+            sort_column = asc(PlaylistTrack.added_at.nullslast())
+        else:
+            sort_column = desc(PlaylistTrack.added_at.nullslast())
+    elif sort_by == "updated_at":
+        if sort_order == "asc":
+            sort_column = asc(Track.updated_at)
+        else:
+            sort_column = desc(Track.updated_at)
+
+    stmt = stmt.order_by(sort_column).limit(limit)
+    result = await session.execute(stmt)
+    rows = result.all()
+
+    # Transform results to include playlist info
+    tracks_with_playlist = []
+    tracks_dict = {}
+    
+    for row in rows:
+        track = row[0]
+        track_id = track.id
+        
+        # If track not yet in dict, create base track object
+        if track_id not in tracks_dict:
+            tracks_dict[track_id] = {
+                "id": track.id,
+                "title": track.title,
+                "artists": track.artists,
+                "album": track.album,
+                "duration_ms": track.duration_ms,
+                "isrc": track.isrc,
+                "year": track.year,
+                "explicit": track.explicit,
+                "cover_url": track.cover_url,
+                "normalized_title": track.normalized_title,
+                "normalized_artists": track.normalized_artists,
+                "genre": track.genre,
+                "bpm": track.bpm,
+                "release_date": track.release_date.isoformat() if track.release_date else None,  # Date de release de la track sur Spotify
+                "downloaded_at": row.downloaded_at.isoformat() if row.downloaded_at else None,  # Date de téléchargement
+                "playlists": []
+            }
+        
+        # Add playlist info if exists
+        if row.playlist_added_at and row.playlist_name:
+            playlist_info = {
+                "playlist_name": row.playlist_name,
+                "playlist_added_at": row.playlist_added_at.isoformat(),  # When added to playlist
+                "position": row.playlist_position
+            }
+            tracks_dict[track_id]["playlists"].append(playlist_info)
+    
+    # Convert dict to list
+    tracks_with_playlist = list(tracks_dict.values())
+
+    return tracks_with_playlist
+
+
 @router.post("/", response_model=TrackRead)
 async def create_track(payload: TrackCreate, session: AsyncSession = Depends(get_session)):
     data = payload.model_dump()
@@ -185,6 +295,32 @@ async def get_track(track_id: int, session: AsyncSession = Depends(get_session))
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     return track
+
+
+@router.get("/{track_id}/identities")
+async def get_track_identities(track_id: int, session: AsyncSession = Depends(get_session)):
+    # Verify track exists
+    track = await session.get(Track, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    
+    # Get all identities for this track
+    stmt = select(TrackIdentity).where(TrackIdentity.track_id == track_id)
+    result = await session.execute(stmt)
+    identities = result.scalars().all()
+    
+    return [
+        {
+            "id": identity.id,
+            "provider": identity.provider.value,
+            "provider_track_id": identity.provider_track_id,
+            "provider_url": identity.provider_url,
+            "fingerprint": identity.fingerprint,
+            "created_at": identity.created_at.isoformat(),
+            "updated_at": identity.updated_at.isoformat(),
+        }
+        for identity in identities
+    ]
 
 
 @router.put("/{track_id}", response_model=TrackRead)
