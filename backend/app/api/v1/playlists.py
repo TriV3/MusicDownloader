@@ -556,7 +556,8 @@ async def spotify_sync_playlists(
     async def fetch_playlist_tracks(pl_id: str) -> List[dict]:
         items: List[dict] = []
         async with httpx.AsyncClient(timeout=30) as client:
-            url = f"https://api.spotify.com/v1/playlists/{pl_id}/tracks?limit=100"
+            # Request additional album fields for release date
+            url = f"https://api.spotify.com/v1/playlists/{pl_id}/tracks?limit=100&fields=items(added_at,track(id,name,artists,album(name,images,release_date,release_date_precision),duration_ms,external_ids,explicit)),next"
             while url:
                 resp = await client.get(url, headers={"Authorization": f"Bearer {access_token}"})
                 if resp.status_code != 200:
@@ -626,13 +627,39 @@ async def spotify_sync_playlists(
             title: str = tr.get("name") or ""
             artists_list = tr.get("artists") or []
             artists_names = ", ".join([a.get("name") for a in artists_list if a and a.get("name")])
-            album = (tr.get("album") or {}).get("name")
-            images = (tr.get("album") or {}).get("images") or []
+            album_data = tr.get("album") or {}
+            album = album_data.get("name")
+            images = album_data.get("images") or []
             duration_ms = tr.get("duration_ms")
             isrc = None
             ext_ids = tr.get("external_ids") or {}
             if isinstance(ext_ids, dict):
                 isrc = ext_ids.get("isrc")
+            
+            # Extract release date from album
+            release_date = None
+            release_date_raw = album_data.get("release_date")
+            if isinstance(release_date_raw, str) and release_date_raw:
+                try:
+                    from datetime import datetime
+                    # Spotify release_date can be YYYY, YYYY-MM, or YYYY-MM-DD
+                    release_date_precision = album_data.get("release_date_precision", "day")
+                    if release_date_precision == "year" and len(release_date_raw) == 4:
+                        # Only year: set to January 1st
+                        release_date = datetime(int(release_date_raw), 1, 1)
+                    elif release_date_precision == "month" and len(release_date_raw) == 7:
+                        # Year-Month: set to first day of month
+                        year, month = release_date_raw.split("-")
+                        release_date = datetime(int(year), int(month), 1)
+                    elif release_date_precision == "day" and len(release_date_raw) == 10:
+                        # Full date
+                        release_date = datetime.fromisoformat(release_date_raw)
+                    else:
+                        # Fallback: try to parse as-is
+                        release_date = datetime.fromisoformat(release_date_raw)
+                except Exception:
+                    release_date = None
+            
             added_at_raw = it.get("added_at")
             added_at = None
             if isinstance(added_at_raw, str) and added_at_raw:
@@ -657,14 +684,17 @@ async def spotify_sync_playlists(
             if row:
                 identity, track = row
                 # Update minimal fields to reflect latest metadata
-                before = (track.title, track.artists, track.album, track.duration_ms, track.isrc)
+                before = (track.title, track.artists, track.album, track.duration_ms, track.isrc, track.release_date)
                 track.title = title or track.title
                 track.artists = artists_names or track.artists
                 track.album = album or track.album
                 track.duration_ms = duration_ms or track.duration_ms
                 track.isrc = isrc or track.isrc
+                # Update release_date if we have a new one and the track doesn't have one yet, or if the new one is different
+                if release_date and (not track.release_date or track.release_date != release_date):
+                    track.release_date = release_date
                 # Normalize if changed
-                after = (track.title, track.artists, track.album, track.duration_ms, track.isrc)
+                after = (track.title, track.artists, track.album, track.duration_ms, track.isrc, track.release_date)
                 if after != before:
                     n = normalize_track(track.artists, track.title)
                     track.normalized_artists = n.normalized_artists
@@ -688,6 +718,7 @@ async def spotify_sync_playlists(
                     cover_url=(max(images, key=lambda im: im.get("width") or 0).get("url") if images else None),
                     normalized_title=n.normalized_title,
                     normalized_artists=n.normalized_artists,
+                    release_date=release_date,
                     # created_at will be overwritten below if we have added_at earlier
                 )
                 session.add(track)

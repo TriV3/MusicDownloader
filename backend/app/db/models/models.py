@@ -101,6 +101,8 @@ class Track(Base):
     # Optional musical metadata (added by Step 1.4 JSON import feature)
     genre: Mapped[Optional[str]] = mapped_column(String(200))
     bpm: Mapped[Optional[int]] = mapped_column(Integer)
+    release_date: Mapped[Optional[datetime]] = mapped_column(DateTime)  # Spotify/streaming platform release date
+    spotify_added_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # When user added/liked track in Spotify library
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

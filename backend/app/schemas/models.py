@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 
 try:
@@ -80,12 +80,23 @@ class TrackCreate(BaseModel):
     normalized_artists: Optional[str] = None
     genre: Optional[str] = None
     bpm: Optional[int] = None
+    release_date: Optional[datetime] = None
+    spotify_added_at: Optional[datetime] = None
 
 
 class TrackRead(TrackCreate):
     id: int
     created_at: datetime
     updated_at: datetime
+    
+    # Playlist information
+    class PlaylistInfo(BaseModel):
+        playlist_id: int
+        playlist_name: str
+        added_at: Optional[datetime] = None
+        position: Optional[int] = None
+    
+    playlists: Optional[List["TrackRead.PlaylistInfo"]] = None
 
     class Config:
         from_attributes = True
@@ -145,22 +156,14 @@ class SearchCandidateRead(SearchCandidateCreate):
     id: int
     created_at: datetime
     duration_delta_sec: Optional[float] = None  # computed client convenience
+    track: Optional["TrackRead"] = None  # Include track information
+    
     class ScoreBreakdown(BaseModel):
-        text: float
+        artist: float
+        title: float
         duration: float
         extended: float
-        channel: float
-        penalty: float  # aggregated: tokens_penalty + keywords_penalty
         total: float
-        class ScoreDetails(BaseModel):
-            text_similarity: Optional[float] = None
-            duration_bonus: Optional[float] = None
-            extended_base: Optional[float] = None
-            extended_length_bonus: Optional[float] = None
-            channel_bonus: Optional[float] = None
-            tokens_penalty: Optional[float] = None
-            keywords_penalty: Optional[float] = None
-        details: Optional[ScoreDetails] = None
 
     score_breakdown: Optional[ScoreBreakdown] = None
 

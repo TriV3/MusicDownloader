@@ -138,6 +138,23 @@ async def on_startup():
         except Exception:
             pass
 
+        # Migration for tracks table
+        try:  # pragma: no cover
+            result = await conn.exec_driver_sql("PRAGMA table_info(tracks)")
+            cols = [row[1] for row in result.fetchall()]
+            alter_statements = []
+            if "release_date" not in cols:
+                alter_statements.append("ALTER TABLE tracks ADD COLUMN release_date DATETIME")
+            if "spotify_added_at" not in cols:
+                alter_statements.append("ALTER TABLE tracks ADD COLUMN spotify_added_at DATETIME")
+            for stmt in alter_statements:
+                try:
+                    await conn.exec_driver_sql(stmt)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         # Auto-migrate new Track columns (genre, bpm) if missing (Step 1.4)
         try:  # pragma: no cover
             result = await conn.exec_driver_sql("PRAGMA table_info(tracks)")
@@ -186,6 +203,8 @@ async def on_startup():
                                 normalized_artists VARCHAR(500),
                                 genre VARCHAR(200),
                                 bpm INTEGER,
+                                release_date DATETIME,
+                                spotify_added_at DATETIME,
                                 created_at DATETIME,
                                 updated_at DATETIME
                             )
@@ -195,7 +214,7 @@ async def on_startup():
                         existing_cols = [r[1] for r in rows]
                         desired = [
                             "id","title","artists","album","duration_ms","isrc","year","explicit","cover_url",
-                            "normalized_title","normalized_artists","genre","bpm","created_at","updated_at"
+                            "normalized_title","normalized_artists","genre","bpm","release_date","spotify_added_at","created_at","updated_at"
                         ]
                         copy_cols = [c for c in desired if c in existing_cols]
                         cols_csv = ",".join(copy_cols)
