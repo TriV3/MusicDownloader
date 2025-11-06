@@ -43,6 +43,139 @@ def _sanitize_component(name: str) -> str:
     return s.strip(" .")
 
 
+async def _set_file_timestamps(file_path: Path, track: Track, track_id: int) -> None:
+    """Set file timestamps based on track metadata and playlist context.
+    
+    Creation time: Track release_date (if available), otherwise current time
+    Modification time: Most recent added_at from playlists (if available), otherwise current time
+    
+    Cross-platform implementation:
+    - Linux/macOS: Sets modification and access time (creation time is filesystem-dependent)
+    - Windows: Sets modification, access, and creation time (requires pywin32)
+    """
+    import time
+    import platform
+    
+    # Get release date from track for creation time
+    creation_time = None
+    if track.release_date:
+        creation_time = track.release_date.timestamp()
+    
+    # Get the most recent playlist added_at for modification time
+    modification_time = None
+    try:
+        async with async_session() as session:
+            from sqlalchemy import select, desc
+            from ..db.models.models import PlaylistTrack  # type: ignore
+            
+            result = await session.execute(
+                select(PlaylistTrack)
+                .where(PlaylistTrack.track_id == track_id)
+                .where(PlaylistTrack.added_at.isnot(None))
+                .order_by(desc(PlaylistTrack.added_at))
+            )
+            latest_playlist_entry = result.scalars().first()
+            if latest_playlist_entry and latest_playlist_entry.added_at:
+                modification_time = latest_playlist_entry.added_at.timestamp()
+    except Exception:
+        pass  # If we can't get playlist info, use defaults
+    
+    # Fallback to current time if we don't have the dates
+    current_time = time.time()
+    if creation_time is None:
+        creation_time = current_time
+    if modification_time is None:
+        modification_time = current_time
+    
+    # Ensure modification time is not before creation time
+    if modification_time < creation_time:
+        modification_time = creation_time
+    
+    # Set the timestamps - cross-platform approach
+    try:
+        # Always set access time and modification time (works on all platforms)
+        await asyncio.to_thread(os.utime, file_path, (modification_time, modification_time))
+        
+        # Platform-specific creation time handling
+        system = platform.system().lower()
+        
+        if system == "windows":
+            # Windows: Try to set creation time with pywin32 (optional dependency)
+            await _set_windows_creation_time(file_path, creation_time, modification_time)
+        
+        elif system == "darwin":
+            # macOS: Try to set creation time with xattr (birth time)
+            await _set_macos_creation_time(file_path, creation_time)
+        
+        elif system == "linux":
+            # Linux: Creation time handling is filesystem-dependent
+            # ext4, btrfs, etc. support birth time but it's not easily settable
+            # We rely on the fact that the file was just created, so creation time should be recent
+            pass
+        
+    except Exception:
+        # If timestamp setting fails, continue without it (not critical)
+        pass
+
+
+async def _set_windows_creation_time(file_path: Path, creation_time: float, modification_time: float) -> None:
+    """Set creation time on Windows using pywin32 (if available)."""
+    try:
+        import win32file
+        import pywintypes
+        
+        def _set_creation_time():
+            handle = win32file.CreateFile(
+                str(file_path),
+                win32file.GENERIC_WRITE,
+                win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE,
+                None,
+                win32file.OPEN_EXISTING,
+                0,
+                None
+            )
+            try:
+                # Convert timestamp to Windows FILETIME
+                creation_filetime = pywintypes.Time(creation_time)
+                modification_filetime = pywintypes.Time(modification_time)
+                win32file.SetFileTime(handle, creation_filetime, None, modification_filetime)
+            finally:
+                win32file.CloseHandle(handle)
+        
+        await asyncio.to_thread(_set_creation_time)
+    except ImportError:
+        # pywin32 not available - skip creation time setting
+        pass
+    except Exception:
+        # Other error setting creation time - continue without it
+        pass
+
+
+async def _set_macos_creation_time(file_path: Path, creation_time: float) -> None:
+    """Set creation time on macOS using subprocess (if available)."""
+    try:
+        import subprocess
+        from datetime import datetime
+        
+        # Convert timestamp to macOS date format: MM/dd/yyyy HH:mm:ss
+        dt = datetime.fromtimestamp(creation_time)
+        date_str = dt.strftime("%m/%d/%Y %H:%M:%S")
+        
+        def _set_creation_time():
+            # Use SetFile command (part of Xcode command line tools)
+            subprocess.run([
+                "SetFile", "-d", date_str, str(file_path)
+            ], check=True, capture_output=True)
+        
+        await asyncio.to_thread(_set_creation_time)
+    except (ImportError, subprocess.CalledProcessError, FileNotFoundError):
+        # SetFile not available or failed - skip creation time setting
+        pass
+    except Exception:
+        # Other error setting creation time - continue without it
+        pass
+
+
 async def _resolve_storage_context(session, track_id: int) -> tuple[str, Optional[str]]:
     """Return (provider_slug, playlist_name_or_None) for hierarchical storage.
 
@@ -285,6 +418,10 @@ async def perform_download(download_id: int) -> DownloadOutcome:
         except Exception:
             pass
         await _write_fake_mp3(out_path, title=track.title, artists=track.artists)
+        
+        # Set file timestamps based on track metadata and playlist context
+        await _set_file_timestamps(out_path, track, dl.track_id)
+        
         checksum = _sha256_file(out_path)
         size = out_path.stat().st_size
         return DownloadOutcome(filepath=out_path, format="mp3", bitrate_kbps=None, filesize_bytes=size, checksum_sha256=checksum)
@@ -496,4 +633,8 @@ async def perform_download(download_id: int) -> DownloadOutcome:
     size = out_path.stat().st_size
     checksum = _sha256_file(out_path)
     fmt = out_path.suffix.lstrip(".")
+    
+    # Set file timestamps based on track metadata and playlist context
+    await _set_file_timestamps(out_path, track, dl.track_id)
+    
     return DownloadOutcome(filepath=out_path, format=fmt, bitrate_kbps=None, filesize_bytes=size, checksum_sha256=checksum)

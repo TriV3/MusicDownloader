@@ -193,6 +193,12 @@ class DownloadQueue:
                                     # Copy/overwrite
                                     try:
                                         _shutil.copy2(p, target)
+                                        # Set appropriate timestamps for replicated file
+                                        try:
+                                            from ..utils.downloader import _set_file_timestamps  # type: ignore
+                                            await _set_file_timestamps(target, tr, dl.track_id)
+                                        except Exception:
+                                            pass  # If timestamp setting fails, continue
                                     except Exception as _ce:
                                         print(f"[worker] Replication copy failed to {target}: {_ce}")
                                         continue
