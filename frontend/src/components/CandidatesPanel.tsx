@@ -1,7 +1,7 @@
 import React from 'react'
 import { useParams } from 'react-router-dom'
 
-export type Candidate = { id: number; track_id: number; provider: string; external_id: string; url: string; title: string; score: number; duration_sec?: number; duration_delta_sec?: number; chosen: boolean; score_breakdown?: { text: number; duration: number; extended: number; channel: number; penalty: number; total: number; details?: { text_similarity?: number; duration_bonus?: number; extended_base?: number; extended_length_bonus?: number | null; channel_bonus?: number; tokens_penalty?: number; keywords_penalty?: number } } }
+export type Candidate = { id: number; track_id: number; provider: string; external_id: string; url: string; title: string; score: number; duration_sec?: number; duration_delta_sec?: number; chosen: boolean; score_breakdown?: { artist: number; title: number; duration: number; extended: number; total: number } }
 
 export const CandidatesPanel: React.FC = () => {
   const { id } = useParams()
@@ -206,11 +206,10 @@ export const CandidatesPanel: React.FC = () => {
                       <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title}</div>
                       {c.score_breakdown && (
                         <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                          {renderBadge('Text', c.score_breakdown.text, c.score_breakdown.details)}
-                          {renderBadge('Duration', c.score_breakdown.duration, c.score_breakdown.details)}
-                          {renderBadge('Channel', c.score_breakdown.channel, c.score_breakdown.details)}
-                          {renderBadge('Extended', c.score_breakdown.extended, c.score_breakdown.details)}
-                          {renderBadge('Penalty', c.score_breakdown.penalty, c.score_breakdown.details)}
+                          {renderBadge('Artist', c.score_breakdown.artist)}
+                          {renderBadge('Title', c.score_breakdown.title)}
+                          {renderBadge('Duration', c.score_breakdown.duration)}
+                          {renderBadge('Extended', c.score_breakdown.extended)}
                         </div>
                       )}
                     </td>
@@ -390,29 +389,12 @@ function renderThumbCell(
   )
 }
 
-function renderBadge(label: string, value: number, details?: any) {
+function renderBadge(label: string, value: number) {
   const sign = value > 0 ? '+' : value < 0 ? '-' : ''
   const abs = Math.abs(value)
   const bg = value > 0 ? '#e6ffed' : value < 0 ? '#ffecec' : '#f2f2f2'
   const color = value > 0 ? '#036b26' : value < 0 ? '#a40000' : '#555'
-  let title = label
-  if (details) {
-    const parts: string[] = []
-    if (label === 'Extended') {
-      if (details.extended_base != null) parts.push(`base=${details.extended_base.toFixed(2)}`)
-      if (details.extended_length_bonus) parts.push(`length_bonus=+${details.extended_length_bonus.toFixed(2)}`)
-    } else if (label === 'Penalty') {
-      if (details.tokens_penalty != null) parts.push(`tokens=${details.tokens_penalty.toFixed(2)}`)
-      if (details.keywords_penalty != null) parts.push(`keywords=${details.keywords_penalty.toFixed(2)}`)
-    } else if (label === 'Text') {
-      if (details.text_similarity != null) parts.push(`similarity=${details.text_similarity.toFixed(2)}`)
-    } else if (label === 'Duration') {
-      if (details.duration_bonus != null) parts.push(`bonus=${details.duration_bonus.toFixed(2)}`)
-    } else if (label === 'Channel') {
-      if (details.channel_bonus != null) parts.push(`bonus=${details.channel_bonus.toFixed(2)}`)
-    }
-    if (parts.length) title = `${label}: ${parts.join(', ')}`
-  }
+  const title = `${label}: ${sign}${abs.toFixed(2)}`
   return (
     <span style={{ background: bg, color, borderRadius: 4, padding: '2px 6px', fontSize: 12 }} title={title}>
       {label}: {sign}{abs.toFixed(2)}
