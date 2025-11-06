@@ -442,21 +442,11 @@ async def youtube_search_track(
                     created_at=track.created_at,
                     duration_delta_sec=duration_delta_sec(track.duration_ms, sr.duration_sec * 1000) if (track.duration_ms and sr.duration_sec) else None,  # type: ignore[arg-type]
                     score_breakdown=SearchCandidateRead.ScoreBreakdown(
-                        text=comps[0],
+                        artist=comps[0],
+                        title=comps[1],
                         duration=comps[3],
                         extended=comps[2],
-                        channel=comps[0],
-                        penalty=comps[4],
                         total=comps[5],
-                        details=SearchCandidateRead.ScoreBreakdown.ScoreDetails(
-                            text_similarity=comps[1],
-                            duration_bonus=comps[3],
-                            extended_base=comps[2],
-                            extended_length_bonus=None,
-                            channel_bonus=0.0,
-                            tokens_penalty=0.0,
-                            keywords_penalty=0.0,
-                        ),
                     ),
                 )
             )

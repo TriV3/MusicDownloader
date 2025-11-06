@@ -2,15 +2,23 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Run backend tests (.venv)",
+			"label": "Run all tests",
 			"type": "shell",
 			"command": "cmd.exe",
 			"args": [
 				"/d",
 				"/c",
-				".venv\\Scripts\\python -m pytest -q backend/tests/"
+				".venv\\Scripts\\python -m pytest backend/tests/ -v"
 			],
-			"group": "test"
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			},
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			}
 		},
 		{
 			"label": "Test Ranking Algorithm",
@@ -30,22 +38,6 @@
 				"kind": "test",
 				"isDefault": false
 			}
-		},
-		{
-			"label": "Test Ranking Algorithm (Detailed)",
-			"type": "shell",
-			"command": "cmd.exe",
-			"args": [
-				"/d",
-				"/c",
-				".venv\\Scripts\\python -m pytest backend/tests/test_ranking_service.py -vv --tb=long -s"
-			],
-			"problemMatcher": [],
-			"presentation": {
-				"reveal": "always",
-				"panel": "new"
-			},
-			"group": "test"
 		},
 		{
 			"label": "Build frontend (vite)",
