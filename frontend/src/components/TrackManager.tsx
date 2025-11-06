@@ -59,9 +59,9 @@ export const TrackManager: React.FC = () => {
   const [filterCreatedTo, setFilterCreatedTo] = React.useState('')
 
   // Sorting state
-  // Default: most recent first (created_at descending)
+  // Default: playlist_added desc (most recent first)
   const [spotifyAddedAsc, setSpotifyAddedAsc] = React.useState<boolean | null>(null)
-  const [playlistAddedAsc, setPlaylistAddedAsc] = React.useState<boolean | null>(null)
+  const [playlistAddedAsc, setPlaylistAddedAsc] = React.useState<boolean | null>(false) // false = descending (most recent first)
 
   const loadingRef = React.useRef(false)
   // Removed mountedRef pattern to avoid suppressing legitimate late responses; rely on aborting fetches instead if needed.
@@ -105,7 +105,16 @@ export const TrackManager: React.FC = () => {
           return
         }
         setEntriesByPlaylist(entries)
-        const trackList = entries.map((e: any) => e.track)
+        // Enrich tracks with playlist_added_at from entries
+        const trackList = entries.map((e: any) => ({
+          ...e.track,
+          playlists: [{
+            playlist_id: selectedPlaylistId,
+            playlist_name: playlists.find(p => p.id === selectedPlaylistId)?.name || 'Unknown',
+            playlist_added_at: e.added_at,
+            position: e.position
+          }]
+        }))
         setLastFetchedCount(trackList.length)
         setTracks(trackList)
         if (trackList.length > 0) {
