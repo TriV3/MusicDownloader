@@ -4,6 +4,13 @@ import { useAudioPlayer } from '../contexts/AudioPlayerContext'
 import type { NormalizationPreview } from './NormalizationPlayground'
 import './AudioPlayer.css'
 
+export type PlaylistInfo = {
+  playlist_id: number;
+  playlist_name: string;
+  playlist_added_at?: string;
+  position?: number;
+}
+
 export type TrackRead = {
   id: number
   title: string
@@ -18,8 +25,9 @@ export type TrackRead = {
   normalized_artists: string
   genre?: string | null
   bpm?: number | null
-  created_at: string
-  updated_at: string
+  release_date?: string | null
+  downloaded_at?: string | null
+  playlists?: PlaylistInfo[]
 }
 
 export const TrackManager: React.FC = () => {
@@ -52,7 +60,8 @@ export const TrackManager: React.FC = () => {
 
   // Sorting state
   // Default: most recent first (created_at descending)
-  const [createdAsc, setCreatedAsc] = React.useState<boolean | null>(false)
+  const [spotifyAddedAsc, setSpotifyAddedAsc] = React.useState<boolean | null>(null)
+  const [playlistAddedAsc, setPlaylistAddedAsc] = React.useState<boolean | null>(null)
 
   const loadingRef = React.useRef(false)
   // Removed mountedRef pattern to avoid suppressing legitimate late responses; rely on aborting fetches instead if needed.
@@ -62,7 +71,7 @@ export const TrackManager: React.FC = () => {
     setReloading(true)
     try {
       if (selectedPlaylistId === 'all') {
-        const r = await fetch('/api/v1/tracks/?limit=1000')
+        const r = await fetch('/api/v1/tracks/with_playlist_info?limit=1000')
         if (!r.ok) throw new Error('tracks fetch failed')
         const data = await r.json()
   setEntriesByPlaylist([])
@@ -336,14 +345,29 @@ export const TrackManager: React.FC = () => {
             <th>Duration</th>
             <th>
               <button 
-                className={`sort-button ${createdAsc !== null ? 'active' : ''}`}
-                onClick={() => setCreatedAsc(p => p === null ? false : (p ? false : true))} 
-                title='Click to toggle sort by created date'
+                className={`sort-button ${spotifyAddedAsc !== null ? 'active' : ''}`}
+                onClick={() => {
+                  setPlaylistAddedAsc(null)
+                  setSpotifyAddedAsc(p => p === null ? false : (p ? false : true))
+                }} 
+                title='Click to toggle sort by Spotify library added date'
               >
-                Created {createdAsc === null ? '' : createdAsc ? '▲' : '▼'}
+                Spotify Added {spotifyAddedAsc === null ? '' : spotifyAddedAsc ? '▲' : '▼'}
               </button>
             </th>
-            <th>Updated</th>
+            <th>
+              <button 
+                className={`sort-button ${playlistAddedAsc !== null ? 'active' : ''}`}
+                onClick={() => {
+                  setSpotifyAddedAsc(null)
+                  setPlaylistAddedAsc(p => p === null ? false : (p ? false : true))
+                }} 
+                title='Click to toggle sort by playlist added date'
+              >
+                Playlist Added {playlistAddedAsc === null ? '' : playlistAddedAsc ? '▲' : '▼'}
+              </button>
+            </th>
+            <th>Downloaded</th>
             <th>Actions</th>
           </tr>
           {/* Filter row */}
@@ -362,6 +386,7 @@ export const TrackManager: React.FC = () => {
             <th><input value={filterTitle} onChange={e => setFilterTitle(e.target.value)} placeholder='Title' /></th>
             <th><input value={filterPlaylistName} onChange={e => setFilterPlaylistName(e.target.value)} placeholder='Playlist' /></th>
             <th><input value={filterGenre} onChange={e => setFilterGenre(e.target.value)} placeholder='Genre' /></th>
+            <th />
             <th />
             <th />
             <th>
@@ -419,18 +444,44 @@ export const TrackManager: React.FC = () => {
             }
             // Removed tempo/energy/danceability filtering
             if (filterCreatedFrom) {
-              const from = new Date(filterCreatedFrom + 'T00:00:00Z').getTime()
-              derived = derived.filter(t => new Date(t.created_at).getTime() >= from)
+              const from = new Date(filterCreatedFrom).getTime()
+              derived = derived.filter(t => t.release_date && new Date(t.release_date).getTime() >= from)
             }
             if (filterCreatedTo) {
-              const to = new Date(filterCreatedTo + 'T23:59:59Z').getTime()
-              derived = derived.filter(t => new Date(t.created_at).getTime() <= to)
+              const to = new Date(filterCreatedTo + 'T23:59:59').getTime()
+              derived = derived.filter(t => t.release_date && new Date(t.release_date).getTime() <= to)
             }
-            if (createdAsc !== null) {
+            // Sorting logic
+            if (spotifyAddedAsc !== null) {
               derived = [...derived].sort((a, b) => {
-                const da = new Date(a.created_at).getTime()
-                const db = new Date(b.created_at).getTime()
-                return createdAsc ? da - db : db - da
+                const da = a.release_date ? new Date(a.release_date).getTime() : 0
+                const db = b.release_date ? new Date(b.release_date).getTime() : 0
+                // Put tracks without release date at the end
+                if (da === 0 && db === 0) return 0
+                if (da === 0) return 1
+                if (db === 0) return -1
+                return spotifyAddedAsc ? da - db : db - da
+              })
+            } else if (playlistAddedAsc !== null) {
+              derived = [...derived].sort((a, b) => {
+                // Get the earliest playlist addition date for each track
+                const getEarliestPlaylistDate = (track: TrackRead) => {
+                  if (!track.playlists || track.playlists.length === 0) return null
+                  const dates = track.playlists
+                    .map(p => p.playlist_added_at)
+                    .filter(date => date)
+                    .map(date => new Date(date!).getTime())
+                  return dates.length > 0 ? Math.min(...dates) : null
+                }
+                
+                const da = getEarliestPlaylistDate(a)
+                const db = getEarliestPlaylistDate(b)
+                
+                // Put tracks without playlist dates at the end
+                if (da === null && db === null) return 0
+                if (da === null) return 1
+                if (db === null) return -1
+                return playlistAddedAsc ? da - db : db - da
               })
             }
             return derived.map((t, idx) => {
@@ -475,8 +526,16 @@ export const TrackManager: React.FC = () => {
               <td className="col-genre">{t.genre ?? '-'}</td>
               <td className="col-bpm">{t.bpm ?? '-'}</td>
               <td className="col-duration">{t.duration_ms != null ? formatDuration(t.duration_ms) : '-'}</td>
-              <td className="col-dates">{formatDate(t.created_at)}</td>
-              <td className="col-dates">{formatDate(t.updated_at)}</td>
+              <td className="col-dates">{t.release_date ? formatDate(t.release_date) : '-'}</td>
+              <td className="col-dates">
+                {t.playlists && t.playlists.length > 0 ? (
+                  t.playlists
+                    .filter(p => p.playlist_added_at)
+                    .map(p => formatDate(p.playlist_added_at!))
+                    .join(', ') || '-'
+                ) : '-'}
+              </td>
+              <td className="col-dates">{downloadedIds.has(t.id) ? 'Yes' : 'No'}</td>
               <td className="col-actions">
                 <Link to={`/tracks/${t.id}`}>View</Link>
                 <button onClick={() => remove(t.id)}>Delete</button>
@@ -486,7 +545,7 @@ export const TrackManager: React.FC = () => {
           })()}
           {tracks.length === 0 && !lastNonEmptyRef.current && (
             <tr>
-              <td colSpan={16} className="tracks-empty">
+              <td colSpan={17} className="tracks-empty">
                 <div>No tracks to display.</div>
                 {lastFetchedCount > 0 && (
                   <div className="debug-info">
