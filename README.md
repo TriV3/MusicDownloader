@@ -109,6 +109,11 @@ The test suite uses a shared in-memory SQLite database and runs FastAPI startup/
 
 Build the multi-stage image (includes the built React app and Python deps). Both snippets read the tag from the shared `VERSION` file.
 
+**Cross-platform compatibility**: The Docker image is based on Python 3.11-slim (Linux) and includes cross-platform timestamp functionality. File timestamps work as follows:
+- **Linux containers**: Modification time setting (creation time depends on filesystem support)
+- **Windows containers**: Full timestamp support if running on Windows host
+- **macOS containers**: Modification time + creation time via system tools when available
+
 PowerShell:
 
 ```
@@ -355,6 +360,16 @@ old/               # Legacy code kept for reference
 		- `LIBRARY_DIR` (default `./library`) to store downloaded files
 		- `YT_DLP_BIN` and `FFMPEG_BIN` if not on PATH
 		- `PREFERRED_AUDIO_FORMAT` (default `mp3`)
+- **File Timestamps** (Cross-platform):
+	- Downloaded files get meaningful timestamps based on Spotify metadata:
+	- **Creation time**: Set to the track's Spotify release date (from album release_date)
+	- **Modification time**: Set to the most recent playlist addition date (added_at)
+	- **Platform support**:
+		- **Windows**: Full support with creation time setting (requires pywin32)
+		- **macOS**: Modification time + creation time via SetFile (when available)
+		- **Linux**: Modification time (creation time is filesystem-dependent)
+	- Fallback to current time if metadata is unavailable
+	- Enables chronological sorting by release date and playlist activity
 - Testing:
 	- Test-only helpers (not shown in OpenAPI):
 		- `POST /api/v1/downloads/_restart_worker` with `{ "concurrency": 2, "simulate_seconds": 0.05 }`
