@@ -371,12 +371,28 @@ async def redoc_redirect():
 # backend/app/static. We mount them at / and provide an SPA fallback.
 static_dir = Path(__file__).resolve().parent / "static"
 if static_dir.exists():
-    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="frontend")
-
-    # Optional explicit fallback for SPA routes not starting with /api
-    @app.get("/{full_path:path}")
-    async def spa_fallback(full_path: str):  # type: ignore[unused-argument]
+    # Serve static assets (JS, CSS, images, etc.)
+    assets_dir = static_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+    
+    # SPA fallback: serve index.html for all non-API routes
+    # This must be defined as a catch-all route to handle client-side routing
+    from starlette.exceptions import HTTPException
+    
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        # Don't intercept API routes - let FastAPI handle them and return proper 404
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        
+        # Check if the requested file exists in static_dir (e.g., favicon.ico, robots.txt)
+        requested_file = static_dir / full_path
+        if requested_file.is_file():
+            return FileResponse(str(requested_file))
+        
+        # For all other routes, serve index.html to let the frontend router handle it
         index_file = static_dir / "index.html"
         if index_file.exists():
             return FileResponse(str(index_file))
-        return {"detail": "Not Found"}
+        raise HTTPException(status_code=404, detail="Not Found")

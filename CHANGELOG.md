@@ -3,13 +3,86 @@
 All notable changes to this project are documented in this file.
 
 Versioning scheme:
-- Versions follow `0.<phase>.<minor>` and milestones are described in `docs/specs.md`.
+- Versions follow semantic versioning for stable releases (1.0.0+) and `0.<phase>.<minor>` for development milestones.
 - Each tagged version represents the completion of a documented milestone.
 
-Unreleased
-- Planning and work in progress.
+## 1.0.0 — Production Release: Complete Music Downloader Application
 
-0.5.1 — Phase 5: Dockerfile and Multi-Stage Build (Step 5.1)
+This major release marks the completion of the music downloader application with a complete, production-ready feature set including advanced ranking, track management, and cross-platform support.
+
+### 🎯 Major Features
+
+#### Advanced YouTube Search Ranking System
+- **Unified Ranking Algorithm**: Complete refactor of scoring system using new `RankingService` with configurable parameters
+- **Comprehensive Scoring**: Multi-factor scoring including artist matching, title matching, duration proximity, and extended version detection
+- **Score Breakdown**: Detailed score breakdown API for transparency (artist, title, extended, duration, remaining tokens)
+- **Test Coverage**: 52 test cases validating ranking behavior across diverse scenarios
+- **Documentation**: Complete ranking specification in `docs/search_ranking.md` and implementation guide in `docs/ranking_implementation.md`
+- **Configuration**: All ranking parameters centralized in `ranking_config.py` for easy tuning
+
+#### Enhanced Track Management
+- **Track Dates**: Added `release_date` and `spotify_added_at` fields to track model for comprehensive date tracking
+- **Enriched API Endpoints**: New `/tracks/with_playlist_info` and `/candidates/enriched` endpoints with complete track metadata
+- **Track Identities Endpoint**: Dedicated `/tracks/{id}/identities` endpoint for identity management
+- **Simplified UI**: Track manager now displays 3 essential date columns (Spotify Added, Playlist Added, Downloaded)
+- **Unified Track Detail Page**: Single page combining overview, identities, and candidates for better UX
+
+#### Cross-Platform File Timestamp Management
+- **Windows Support**: Native timestamp setting using `pywin32` for accurate file dates
+- **macOS Support**: Uses `SetFile` command for precise timestamp control
+- **Linux Compatibility**: Graceful fallback with best-effort timestamp setting
+- **Automatic Detection**: Platform-specific logic automatically selected at runtime
+- **Production Ready**: Ensures correct file dates across all deployment environments
+
+#### Improved Frontend Experience
+- **Responsive Audio Player**: Enhanced global audio player with better responsive design and footer integration
+- **Candidates Panel Enhancements**: Complete track information display with score breakdown visualization
+- **Track Search Response**: Refactored structure for cleaner data flow and improved performance
+- **Logging Improvements**: Enhanced debugging with track info and search results logging
+- **Frontend Dependencies**: Updated to latest stable versions
+
+### 🐛 Bug Fixes
+- **SPA Routing**: Fixed 404 errors when accessing routes directly or after OAuth redirects (Spotify callback)
+- **Artist Normalization**: Improved handling of featured artist markers (`feat.`, `ft.`, `featuring`)
+- **Token Matching**: Added exact token bonus and extra token penalty for more accurate scoring
+- **Test Channel Data**: Updated YouTube search channel test data for consistency
+
+### 🔧 Technical Improvements
+- **Extractor Args**: Added resolution and retry profiles for yt-dlp configuration
+- **Auto-Migration**: Enhanced database migration system for seamless schema updates
+- **Test Infrastructure**: Comprehensive test suite with tasks for ranking algorithm validation
+- **Code Refactoring**: Disabled old scoring system tests in favor of new unified ranking service
+- **Git Cleanup**: Removed tracked frontend assets from Git index
+
+### 📚 Documentation
+- **Implementation Summary**: Complete documentation in `IMPLEMENTATION_SUMMARY.md`
+- **Ranking Guide**: Detailed ranking implementation guide with architecture and scoring process
+- **SPA Routing**: Technical documentation for SPA fallback mechanism in `docs/technical/spa_routing.md`
+- **API Documentation**: Updated API docs with new endpoints and response structures
+
+### 🧪 Testing
+- **96 Tests Passing**: Comprehensive test coverage across all features
+- **SPA Routing Tests**: 6 new tests for frontend routing behavior
+- **Ranking Tests**: Complete test suite validating all ranking cases
+- **Cross-Platform Tests**: Platform-specific timestamp functionality tests
+- **Integration Tests**: End-to-end testing of track management workflows
+
+### 🚀 Deployment
+- **Docker Support**: Multi-stage Dockerfile with optimized build and runtime stages
+- **Environment Configuration**: Improved settings management with Docker Compose support
+- **Production Ready**: Tested and validated for production deployment on Linux servers
+- **Cross-Platform**: Supports Windows, macOS, and Linux development and production environments
+
+---
+
+## Previous Development Releases
+
+### 0.5.3 — Enhanced Scoring and Extractor Configuration
+- Length-identical bonus scoring for YouTube search
+- Extractor args resolution with retry profiles
+- Global audio context refactoring
+
+### 0.5.1 — Phase 5: Dockerfile and Multi-Stage Build (Step 5.1)
 - Added multi-stage Dockerfile: builds frontend with Node 20, installs backend Python deps in a venv, and assembles a slim runtime with ffmpeg.
 - Added .dockerignore to reduce build context and exclude local data.
 - README updated with docker build/run instructions.
