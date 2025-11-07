@@ -234,6 +234,106 @@ async def _write_fake_mp3(path: Path, title: str, artists: str) -> None:
     await asyncio.to_thread(_write)
 
 
+async def _download_spotify_cover(cover_url: str, temp_dir: Path) -> Optional[Path]:
+    """Download Spotify cover image to a temporary file and return the path.
+    
+    Returns None if download fails or URL is not provided.
+    """
+    if not cover_url:
+        return None
+    
+    try:
+        import httpx
+        
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(cover_url)
+            if response.status_code != 200:
+                print(f"[downloader] Failed to download cover: HTTP {response.status_code}")
+                return None
+            
+            # Determine image extension from content-type or URL
+            content_type = response.headers.get("content-type", "")
+            if "jpeg" in content_type or "jpg" in content_type:
+                ext = ".jpg"
+            elif "png" in content_type:
+                ext = ".png"
+            elif cover_url.endswith(".jpg") or cover_url.endswith(".jpeg"):
+                ext = ".jpg"
+            elif cover_url.endswith(".png"):
+                ext = ".png"
+            else:
+                ext = ".jpg"  # default
+            
+            # Save to temporary file
+            cover_path = temp_dir / f"cover{ext}"
+            await asyncio.to_thread(cover_path.write_bytes, response.content)
+            return cover_path
+    except Exception as e:
+        print(f"[downloader] Error downloading Spotify cover: {e}")
+        return None
+
+
+async def _embed_cover_image(audio_file: Path, cover_file: Path, ffmpeg_path: str) -> bool:
+    """Embed cover image into audio file using ffmpeg.
+    
+    This creates a temporary file with the embedded cover, then replaces the original.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        temp_output = audio_file.with_name(audio_file.stem + "_temp" + audio_file.suffix)
+        
+        # Build ffmpeg command to embed cover
+        # For MP3: use -i for audio, -i for image, -map 0:a -map 1:0 -c copy -id3v2_version 3
+        # For M4A: similar but with -disposition:v:0 attached_pic
+        cmd = [
+            ffmpeg_path,
+            "-i", str(audio_file),
+            "-i", str(cover_file),
+            "-map", "0:a",
+            "-map", "1:0",
+            "-c", "copy",
+        ]
+        
+        # Add format-specific flags
+        if audio_file.suffix.lower() == ".mp3":
+            cmd.extend(["-id3v2_version", "3", "-write_id3v1", "1"])
+        elif audio_file.suffix.lower() in [".m4a", ".mp4"]:
+            cmd.extend(["-disposition:v:0", "attached_pic"])
+        
+        cmd.extend(["-y", str(temp_output)])
+        
+        def _run_ffmpeg():
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                print(f"[downloader] ffmpeg embed cover failed: {result.stderr}")
+                return False
+            return True
+        
+        success = await asyncio.to_thread(_run_ffmpeg)
+        if not success or not temp_output.exists():
+            return False
+        
+        # Replace original file with the one that has embedded cover
+        def _replace():
+            if audio_file.exists():
+                audio_file.unlink()
+            temp_output.replace(audio_file)
+        
+        await asyncio.to_thread(_replace)
+        print(f"[downloader] Successfully embedded Spotify cover into {audio_file.name}")
+        return True
+        
+    except Exception as e:
+        print(f"[downloader] Error embedding cover image: {e}")
+        # Clean up temp file if it exists
+        try:
+            if temp_output.exists():
+                await asyncio.to_thread(temp_output.unlink)
+        except Exception:
+            pass
+        return False
+
+
 def _resolve_extractor_args() -> Optional[str]:
     """Resolve the base extractor args from env/settings (may be overridden per retry profile)."""
     raw = os.environ.get("DOWNLOAD_YTDLP_EXTRACTOR_ARGS")
@@ -485,6 +585,18 @@ async def perform_download(download_id: int) -> DownloadOutcome:
     ]
     if track.album:
         pp_args.append(f"-metadata album={_q(track.album)}")
+    # Add release date metadata
+    if track.release_date:
+        release_date_str = track.release_date.strftime("%Y-%m-%d")
+        release_year = track.release_date.strftime("%Y")
+        # GROUPING tag with full date (YYYY-MM-DD)
+        pp_args.append(f"-metadata grouping={_q(release_date_str)}")  # generic/m4a
+        pp_args.append(f"-metadata TIT1={_q(release_date_str)}")      # ID3v2 (mp3)
+        # Year/Date tags
+        pp_args.append(f"-metadata date={_q(release_date_str)}")      # ISO date (generic)
+        pp_args.append(f"-metadata year={_q(release_year)}")          # year (generic)
+        pp_args.append(f"-metadata TDRC={_q(release_date_str)}")      # ID3v2 recording time
+        pp_args.append(f"-metadata TYER={_q(release_year)}")          # ID3v2 year (legacy)
     # Optional metadata
     try:
         if getattr(track, "genre", None):
@@ -505,6 +617,11 @@ async def perform_download(download_id: int) -> DownloadOutcome:
     ytdlp_add_meta = os.environ.get("DOWNLOAD_ADD_SOURCE_METADATA", "0") not in {"0", "false", "False", "FALSE"}
     clean_tags = os.environ.get("DOWNLOAD_CLEAN_TAGS", "1") not in {"0", "false", "False", "FALSE"}
     embed_thumb = os.environ.get("DOWNLOAD_EMBED_THUMBNAIL", "1") not in {"0", "false", "False", "FALSE"}
+    
+    # Disable YouTube thumbnail embedding if we have a Spotify cover (we'll embed it separately)
+    has_spotify_cover = track.cover_url and track.cover_url.startswith("https://i.scdn.co/")
+    if has_spotify_cover:
+        embed_thumb = False
 
     def build_cmd(audio_fmt: str, allow_embed: bool = True) -> list[str]:
         return _build_ytdlp_command(
@@ -633,6 +750,26 @@ async def perform_download(download_id: int) -> DownloadOutcome:
     size = out_path.stat().st_size
     checksum = _sha256_file(out_path)
     fmt = out_path.suffix.lstrip(".")
+    
+    # Embed Spotify cover image if available (prioritize over YouTube thumbnail)
+    if track.cover_url and track.cover_url.startswith("https://i.scdn.co/"):
+        # This is a Spotify cover URL
+        try:
+            cover_file = await _download_spotify_cover(track.cover_url, out_path.parent)
+            if cover_file:
+                ffmpeg_path = _resolve_exec(settings.ffmpeg_bin, ["ffmpeg.exe", "ffmpeg"]) or settings.ffmpeg_bin or "ffmpeg"
+                embed_success = await _embed_cover_image(out_path, cover_file, ffmpeg_path)
+                # Clean up the temporary cover file
+                try:
+                    await asyncio.to_thread(cover_file.unlink)
+                except Exception:
+                    pass
+                # Recalculate checksum and size after embedding cover
+                if embed_success:
+                    size = out_path.stat().st_size
+                    checksum = _sha256_file(out_path)
+        except Exception as e:
+            print(f"[downloader] Failed to embed Spotify cover: {e}")
     
     # Set file timestamps based on track metadata and playlist context
     await _set_file_timestamps(out_path, track, dl.track_id)

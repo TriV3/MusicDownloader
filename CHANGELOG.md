@@ -6,6 +6,61 @@ Versioning scheme:
 - Versions follow semantic versioning for stable releases (1.0.0+) and `0.<phase>.<minor>` for development milestones.
 - Each tagged version represents the completion of a documented milestone.
 
+## 1.0.1 — Enhanced Metadata and Spotify Cover Integration (November 7, 2025)
+
+This release enhances downloaded files with comprehensive metadata tags and high-quality Spotify album artwork, providing a superior music library experience.
+
+### ✨ New Features
+
+#### Spotify Cover Embedding
+- **High-Quality Album Art**: Downloaded files now embed Spotify album artwork instead of YouTube thumbnails when available
+  - Automatically downloads and embeds Spotify cover images during download process
+  - Prioritizes Spotify covers over YouTube thumbnails for better quality
+  - Supports both MP3 and M4A formats
+  - Graceful fallback to YouTube thumbnails when Spotify cover unavailable
+  - Uses ffmpeg for cross-format cover embedding
+
+#### Comprehensive Release Date Tags
+- **Multiple Date Format Support**: Track release date (from Spotify) is now embedded in multiple tag formats for maximum compatibility
+  - **GROUPING/TIT1**: Full date in YYYY-MM-DD format (e.g., "2023-06-15") for organization and filtering
+  - **date**: ISO date format for modern media players
+  - **year**: Year only (YYYY) for basic compatibility
+  - **TDRC**: ID3v2.4 recording time for MP3 files
+  - **TYER**: ID3v2.3 year for legacy MP3 player compatibility
+  - Cross-format support: TIT1/TDRC/TYER for MP3, grouping/date/year for M4A
+  - Enables organization by release date in all major media players (iTunes, VLC, foobar2000, etc.)
+
+#### Complete Metadata Tags
+- All downloaded files now include comprehensive metadata:
+  - Artist, Title, Album (existing)
+  - Genre, BPM (when available)
+  - Release date in multiple formats (new)
+  - Album artwork from Spotify (new)
+
+### 🔧 Technical Details
+- Modified `backend/app/utils/downloader.py`:
+  - Added `_download_spotify_cover()` function for fetching Spotify album images via httpx
+  - Added `_embed_cover_image()` function for embedding covers using ffmpeg
+  - Enhanced metadata args to include comprehensive date tags (GROUPING, TIT1, date, year, TDRC, TYER)
+  - Disabled YouTube thumbnail embedding when Spotify cover is available
+  - Recalculates file checksum after cover embedding
+- Added test coverage in `backend/tests/test_spotify_cover_and_metadata.py`:
+  - Validates file modification time matches playlist added_at
+  - Confirms metadata tags are properly constructed
+  - Ensures backward compatibility with existing tests
+
+### 📚 Documentation
+- Updated `README.md` with detailed metadata and cover embedding documentation
+- Added comprehensive implementation guide in `docs/SPOTIFY_METADATA_IMPLEMENTATION.md`
+- All changes documented with examples and technical details
+
+### ✅ Testing
+- All existing tests pass
+- New test suite validates metadata and cover functionality
+- Backward compatible with existing downloads
+
+---
+
 ## 1.0.0 — Production Release: Complete Music Downloader Application
 
 This major release marks the completion of the music downloader application with a complete, production-ready feature set including advanced ranking, track management, and cross-platform support.

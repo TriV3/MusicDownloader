@@ -370,6 +370,21 @@ old/               # Legacy code kept for reference
 		- **Linux**: Modification time (creation time is filesystem-dependent)
 	- Fallback to current time if metadata is unavailable
 	- Enables chronological sorting by release date and playlist activity
+- **Metadata Tags**:
+	- All downloaded files include standard tags: artist, title, album, genre, BPM
+	- **Release Date Tags**: The track's release date (from Spotify) is embedded in multiple formats:
+		- **GROUPING tag** (TIT1 for MP3): Full date as YYYY-MM-DD for organization
+		- **date tag**: ISO date format (YYYY-MM-DD) for generic players
+		- **year tag**: Year only (YYYY) for compatibility
+		- **TDRC** (ID3v2): Recording time in ISO format
+		- **TYER** (ID3v2 legacy): Year for older MP3 players
+	- Supports both MP3 (ID3v2.3) and M4A formats
+	- Tags are written during download via ffmpeg post-processing
+- **Album Cover Embedding**:
+	- **Spotify covers prioritized**: When a track has a Spotify cover URL, it is downloaded and embedded into the audio file
+	- **Automatic fallback**: If no Spotify cover is available, YouTube thumbnail is used (when DOWNLOAD_EMBED_THUMBNAIL=1)
+	- Cross-format support for MP3 and M4A files
+	- Covers are embedded during download using ffmpeg
 - Testing:
 	- Test-only helpers (not shown in OpenAPI):
 		- `POST /api/v1/downloads/_restart_worker` with `{ "concurrency": 2, "simulate_seconds": 0.05 }`
