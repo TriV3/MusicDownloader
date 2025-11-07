@@ -254,9 +254,14 @@ class DownloadQueue:
                             yc = res2.scalars().first()
                             if yc:
                                 thumb_url = _yt_thumb(yc.external_id) or _yt_thumb(yc.url)
-                        # Update if missing or different
-                        if thumb_url and (not tr.cover_url or tr.cover_url != thumb_url):
+                        # Update only if missing or if current cover is also a YouTube thumbnail
+                        # (preserve Spotify covers which start with https://i.scdn.co/)
+                        if thumb_url and not tr.cover_url:
                             tr.cover_url = thumb_url
+                        elif thumb_url and tr.cover_url and not tr.cover_url.startswith("https://i.scdn.co/"):
+                            # Only replace if current cover is not a Spotify cover
+                            if tr.cover_url != thumb_url:
+                                tr.cover_url = thumb_url
                 except Exception as _e:
                     print(f"[worker] Failed to set cover for track {dl.track_id}: {_e}")
                 await session.flush()

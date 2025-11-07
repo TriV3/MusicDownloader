@@ -6,6 +6,23 @@ Versioning scheme:
 - Versions follow semantic versioning for stable releases (1.0.0+) and `0.<phase>.<minor>` for development milestones.
 - Each tagged version represents the completion of a documented milestone.
 
+## 1.0.2 — Spotify Cover Preservation Fix (November 7, 2025)
+
+### 🐛 Bug Fixes
+
+#### Fixed Spotify Cover Overwrite Issue
+- **Database Cover Preservation**: Fixed an issue where Spotify album artwork in the database was being replaced by YouTube thumbnails after download completion
+  - The download worker now preserves existing Spotify covers (`https://i.scdn.co/...`) and does not overwrite them with YouTube thumbnails
+  - YouTube thumbnails are still set when no cover exists or when replacing another YouTube thumbnail
+  - The MP3/M4A files themselves continue to correctly embed the Spotify cover image
+  - Added comprehensive test coverage in `backend/tests/test_spotify_cover_preservation.py`
+
+### 🔧 Technical Details
+- Modified `backend/app/worker/downloads_worker.py`:
+  - Updated cover update logic to detect and preserve Spotify cover URLs
+  - Only set YouTube thumbnail when `cover_url` is empty or already contains a YouTube URL
+  - Prevents regression where high-quality Spotify covers were being replaced by lower-quality YouTube thumbnails
+
 ## 1.0.1 — Enhanced Metadata and Spotify Cover Integration (November 7, 2025)
 
 This release enhances downloaded files with comprehensive metadata tags and high-quality Spotify album artwork, providing a superior music library experience.
