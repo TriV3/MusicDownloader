@@ -6,6 +6,7 @@ export const Header: React.FC = () => {
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
   
   const isActive = (path: string) => {
     return location.pathname === path
@@ -20,18 +21,26 @@ export const Header: React.FC = () => {
   }
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node
+      if (
+        menuRef.current && 
+        !menuRef.current.contains(target) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(target)
+      ) {
         closeMobileMenu()
       }
     }
 
     if (mobileMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
+      document.addEventListener('mousedown', handleClickOutside as EventListener)
+      document.addEventListener('touchstart', handleClickOutside as EventListener)
     }
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('mousedown', handleClickOutside as EventListener)
+      document.removeEventListener('touchstart', handleClickOutside as EventListener)
     }
   }, [mobileMenuOpen])
 
@@ -40,7 +49,7 @@ export const Header: React.FC = () => {
   }, [location.pathname])
 
   return (
-    <header className="header" ref={menuRef}>
+    <header className="header">
       <div className="header-container">
         <div className="header-brand">
           <Link to="/" className="brand-link">
@@ -49,7 +58,7 @@ export const Header: React.FC = () => {
           </Link>
         </div>
         
-        <nav className={`header-nav ${mobileMenuOpen ? 'mobile-menu-open' : ''}`}>
+        <nav ref={menuRef} className={`header-nav ${mobileMenuOpen ? 'mobile-menu-open' : ''}`}>
           <Link 
             to="/" 
             className={`nav-link ${isActive('/') ? 'active' : ''}`}
@@ -92,10 +101,11 @@ export const Header: React.FC = () => {
             Settings
           </button>
           <button 
+            ref={buttonRef}
             className="mobile-menu-btn" 
             onClick={toggleMobileMenu}
             aria-label="Toggle menu"
-            aria-expanded={mobileMenuOpen ? 'true' : 'false'}
+            aria-expanded={mobileMenuOpen}
           >
             <span className={`hamburger ${mobileMenuOpen ? 'open' : ''}`}>
               <span></span>

@@ -338,7 +338,7 @@ export const DownloadsPage: React.FC = () => {
       </div>
       {/* Now Playing bar (only when playing) */}
       {nowPlayingId != null && (
-        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, background: '#111', color: '#fff', padding: 8, zIndex: 1000, boxShadow: '0 -2px 8px rgba(0,0,0,0.3)' }}>
+        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, background: '#111', color: '#fff', padding: 8, zIndex: 50, boxShadow: '0 -2px 8px rgba(0,0,0,0.3)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <div style={{ fontSize: 12, opacity: 0.8 }}>
               {`Now Playing • File #${nowPlayingId}`}
