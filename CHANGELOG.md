@@ -6,6 +6,27 @@ Versioning scheme:
 - Versions follow semantic versioning for stable releases (1.0.0+) and `0.<phase>.<minor>` for development milestones.
 - Each tagged version represents the completion of a documented milestone.
 
+## 1.0.3 — Mobile Menu Fix (November 11, 2025)
+
+### 🐛 Bug Fixes
+
+#### Fixed Mobile Menu Display on Downloads Page
+- **Mobile Navigation**: Fixed an issue where the mobile menu did not appear when clicking the hamburger button on the Downloads page
+  - Reduced z-index of the audio player bar from 1000 to 50 to prevent blocking the mobile menu
+  - Improved click/touch event handling for the mobile menu button
+  - Added touch event support (`touchstart`) for better mobile compatibility
+  - Fixed menu reference handling to properly detect clicks outside the menu
+  - The mobile menu now correctly appears above all page elements with proper z-index layering
+
+### 🔧 Technical Details
+- Modified `frontend/src/routes/DownloadsPage.tsx`:
+  - Changed audio player z-index from 1000 to 50
+- Modified `frontend/src/components/Layout/Header.tsx`:
+  - Added `buttonRef` to track the menu button separately from the menu itself
+  - Enhanced `handleClickOutside` to exclude both menu and button from outside click detection
+  - Added `touchstart` event listener for mobile touch support
+  - Moved `menuRef` from header to nav element for proper fixed positioning detection
+
 ## 1.0.2 — Spotify Cover Preservation Fix (November 7, 2025)
 
 ### 🐛 Bug Fixes
