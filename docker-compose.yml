@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   music_downloader:
-    image: ${REGISTRY_HOST:-192.168.2.5:5000}/${IMAGE_NAME:-music-downloader}:${IMAGE_VERSION:-latest}
+    image: ${REGISTRY_HOST:-localhost:5000}/${IMAGE_NAME:-music-downloader}:${IMAGE_VERSION:-latest}
     # If you prefer to always build locally uncomment the next two lines and remove 'image:'
     # build: .
     # image: music-downloader:dev
