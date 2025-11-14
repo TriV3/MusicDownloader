@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy import select, and_, delete, func, distinct, case, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,7 +31,9 @@ except Exception:  # pragma: no cover
 import os
 import httpx
 import time
+import logging
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/playlists", tags=["playlists"])
 
@@ -116,11 +118,18 @@ async def playlists_stats(
         from ...db.models.models import SearchAttempt as _SA  # type: ignore
     except Exception:  # pragma: no cover
         from db.models.models import SearchAttempt as _SA  # type: ignore
+    # Count tracks that are searched but not found AND not downloaded
+    # (exclude tracks that were eventually downloaded despite initial search failure)
     nf_stmt = (
-        select(PlaylistTrack.playlist_id, func.count(_SA.id))
+        select(PlaylistTrack.playlist_id, func.count(distinct(PlaylistTrack.track_id)))
         .select_from(PlaylistTrack)
         .join(_SA, _SA.track_id == PlaylistTrack.track_id)
+        .outerjoin(
+            LibraryFile,
+            (LibraryFile.track_id == PlaylistTrack.track_id) & (LibraryFile.exists == True)  # noqa: E712
+        )
         .where(_SA.results_count == 0)
+        .where(LibraryFile.id.is_(None))  # Exclude tracks that have been downloaded
         .group_by(PlaylistTrack.playlist_id)
     )
     nf_map: Dict[int, int] = {pid: cnt for pid, cnt in (await session.execute(nf_stmt)).all()}
@@ -130,14 +139,17 @@ async def playlists_stats(
         total = int(row.get("total_tracks") or 0)
         downloaded = int(row.get("downloaded_tracks") or 0)
         pid = row.get("playlist_id")
+        searched_not_found = int(nf_map.get(pid, 0)) if pid is not None else 0
+        # not_downloaded_tracks should exclude searched_not_found to show only truly pending tracks
+        not_downloaded = max(0, total - downloaded - searched_not_found)
         items.append({
             "playlist_id": pid,
             "name": row.get("name"),
             "provider": (row.get("provider") or "").value if hasattr(row.get("provider"), "value") else row.get("provider"),
             "total_tracks": total,
             "downloaded_tracks": downloaded,
-            "not_downloaded_tracks": max(0, total - downloaded),
-            "searched_not_found": int(nf_map.get(pid, 0)) if pid is not None else 0,
+            "not_downloaded_tracks": not_downloaded,
+            "searched_not_found": searched_not_found,
         })
 
     if include_other:
@@ -185,25 +197,42 @@ async def get_playlist(playlist_id: int, session: AsyncSession = Depends(get_ses
     return playlist
 
 
-@router.post("/{playlist_id}/auto_download")
-async def auto_download_playlist(
+async def _process_playlist_download(
     playlist_id: int,
-    session: AsyncSession = Depends(get_session),
-    prefer_extended: bool = Query(False, description="Prefer Extended/Club/Original Mix when searching"),
-    dry_run: bool = Query(False, description="If true, do not create candidates or downloads; return what would be enqueued"),
+    prefer_extended: bool,
+    dry_run: bool,
 ):
-    """Search best YouTube candidate per track in playlist and enqueue downloads.
+    """Background task to process playlist downloads without blocking the API."""
+    from ...db.session import async_session  # type: ignore
+    
+    async with async_session() as session:
+        try:
+            await _auto_download_playlist_impl(
+                playlist_id=playlist_id,
+                session=session,
+                prefer_extended=prefer_extended,
+                dry_run=dry_run,
+            )
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            import logging
+            logging.getLogger(__name__).error(f"Error in background playlist download: {e}")
 
-    Behavior:
-    - Skips tracks that already have a LibraryFile.exists on disk (duplicate prevention).
-    - If a chosen candidate exists, enqueues download for it.
-    - Otherwise, performs YouTube search, persists the top scored result as a candidate (chosen), and enqueues it.
-    - Honors server-side filtering (min score, drop negatives) applied in search_youtube.
-    - Returns a summary of actions.
-    """
+
+async def _auto_download_playlist_impl(
+    playlist_id: int,
+    session: AsyncSession,
+    prefer_extended: bool,
+    dry_run: bool,
+) -> Dict[str, Any]:
+    """Implementation of playlist auto-download logic."""
     pl = await session.get(Playlist, playlist_id)
     if not pl:
-        raise HTTPException(status_code=404, detail="Playlist not found")
+        return {
+            "playlist_id": playlist_id,
+            "error": "Playlist not found",
+        }
 
     # Fetch tracks in playlist order
     result = await session.execute(
@@ -334,7 +363,7 @@ async def auto_download_playlist(
             # Skip on errors like 404/validation; continue with next track
             continue
 
-    return {
+    result = {
         "playlist_id": playlist_id,
         "total_tracks": total,
         "skipped_already": skipped_already,
@@ -344,6 +373,260 @@ async def auto_download_playlist(
         "not_found": not_found,
         "dry_run": dry_run,
     }
+    
+    import logging
+    logging.getLogger(__name__).info(f"Playlist {playlist_id} auto-download completed: {result}")
+    
+    return result
+
+
+@router.post("/{playlist_id}/auto_download")
+async def auto_download_playlist(
+    playlist_id: int,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+    prefer_extended: bool = Query(False, description="Prefer Extended/Club/Original Mix when searching"),
+    dry_run: bool = Query(False, description="If true, do not create candidates or downloads; return what would be enqueued"),
+    sync: bool = Query(False, description="If true, process synchronously and return detailed results (for testing)"),
+):
+    """Search best YouTube candidate per track in playlist and enqueue downloads.
+
+    By default, this endpoint returns immediately and processes the playlist in the background.
+    Use the /playlists/stats endpoint to monitor progress.
+    
+    Set sync=true to process synchronously and get detailed results (useful for testing).
+
+    Behavior:
+    - Skips tracks that already have a LibraryFile.exists on disk (duplicate prevention).
+    - If a chosen candidate exists, enqueues download for it.
+    - Otherwise, performs YouTube search, persists the top scored result as a candidate (chosen), and enqueues it.
+    - Honors server-side filtering (min score, drop negatives) applied in search_youtube.
+    """
+    # Verify playlist exists
+    pl = await session.get(Playlist, playlist_id)
+    if not pl:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    
+    # If sync mode, process immediately and return detailed results
+    if sync:
+        return await _auto_download_playlist_impl(
+            playlist_id=playlist_id,
+            session=session,
+            prefer_extended=prefer_extended,
+            dry_run=dry_run,
+        )
+    
+    # Count tracks to provide immediate feedback
+    result = await session.execute(
+        select(func.count(PlaylistTrack.track_id))
+        .where(PlaylistTrack.playlist_id == playlist_id)
+    )
+    track_count = result.scalar() or 0
+    
+    # Add background task
+    background_tasks.add_task(
+        _process_playlist_download,
+        playlist_id=playlist_id,
+        prefer_extended=prefer_extended,
+        dry_run=dry_run,
+    )
+    
+    return {
+        "playlist_id": playlist_id,
+        "status": "processing",
+        "total_tracks": track_count,
+        "message": "Playlist download started in background. Check /playlists/stats for progress.",
+    }
+
+
+@router.post("/{playlist_id}/retry_not_found")
+async def retry_not_found_tracks(
+    playlist_id: int,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Retry searching and downloading tracks that were previously not found.
+    
+    This endpoint:
+    1. Finds all tracks in the playlist that have no successful candidates
+    2. Searches YouTube again for these tracks
+    3. Processes them in background like auto_download
+    
+    Returns immediately with processing status while work continues in background.
+    """
+    # Verify playlist exists
+    pl = await session.get(Playlist, playlist_id)
+    if not pl:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    # Get all tracks in the playlist
+    result = await session.execute(
+        select(Track)
+        .join(PlaylistTrack, PlaylistTrack.track_id == Track.id)
+        .where(PlaylistTrack.playlist_id == playlist_id)
+        .order_by(PlaylistTrack.position)
+    )
+    tracks = result.scalars().all()
+
+    # Count tracks that need retry (have no successful candidates)
+    retry_count = 0
+    for track in tracks:
+        # Check if track has any chosen candidates
+        has_chosen = await session.execute(
+            select(SearchCandidate)
+            .where(
+                SearchCandidate.track_id == track.id,
+                SearchCandidate.chosen == True,  # noqa: E712
+            )
+            .limit(1)
+        )
+        if not has_chosen.scalar_one_or_none():
+            retry_count += 1
+
+    # Launch background task
+    background_tasks.add_task(
+        _process_playlist_retry_not_found,
+        playlist_id=playlist_id,
+    )
+
+    return {
+        "playlist_id": playlist_id,
+        "status": "processing",
+        "total_tracks": len(tracks),
+        "retry_tracks": retry_count,
+        "message": f"Retrying {retry_count} not found tracks in background",
+    }
+
+
+async def _process_playlist_retry_not_found(
+    playlist_id: int,
+):
+    """
+    Background task to retry searching for tracks that were previously not found.
+    
+    Args:
+        playlist_id: The playlist ID
+    """
+    from ...db.session import async_session  # type: ignore
+    
+    try:
+        async with async_session() as session:
+            logger.info(f"Starting retry_not_found processing for playlist {playlist_id}")
+            
+            # Get all tracks in the playlist
+            result = await session.execute(
+                select(Track)
+                .join(PlaylistTrack, PlaylistTrack.track_id == Track.id)
+                .where(PlaylistTrack.playlist_id == playlist_id)
+                .order_by(PlaylistTrack.position)
+            )
+            tracks = result.scalars().all()
+            
+            retried = 0
+            skipped = 0
+
+            for track in tracks:
+                try:
+                    # Check if track already has a chosen candidate
+                    existing_chosen = await session.execute(
+                        select(SearchCandidate)
+                        .where(
+                            SearchCandidate.track_id == track.id,
+                            SearchCandidate.chosen == True,  # noqa: E712
+                        )
+                        .limit(1)
+                    )
+                    if existing_chosen.scalar_one_or_none():
+                        skipped += 1
+                        continue
+
+                    # Delete existing non-chosen candidates to start fresh
+                    await session.execute(
+                        delete(SearchCandidate).where(
+                            SearchCandidate.track_id == track.id
+                        )
+                    )
+                    await session.flush()
+
+                    # Search YouTube for the track
+                    scored = search_youtube(
+                        track.artists,
+                        track.title,
+                        track.duration_ms,
+                        prefer_extended=False,
+                    )
+                    
+                    if not scored:
+                        logger.info(f"No results found for track {track.id} on retry")
+                        # Record search attempt
+                        try:
+                            from ...db.models.models import SearchAttempt, SearchProvider as _SP  # type: ignore
+                        except Exception:  # pragma: no cover
+                            from db.models.models import SearchAttempt, SearchProvider as _SP  # type: ignore
+                        att = SearchAttempt(
+                            track_id=track.id,
+                            provider=_SP.youtube,
+                            results_count=0,
+                            prefer_extended=False,
+                        )
+                        session.add(att)
+                        await session.flush()
+                        skipped += 1
+                        continue
+
+                    top = scored[0]
+                    
+                    # Create new candidate and mark as chosen
+                    sc = SearchCandidate(
+                        track_id=track.id,
+                        provider=SearchProvider.youtube,
+                        external_id=top.external_id,
+                        url=top.url,
+                        title=top.title,
+                        channel=top.channel,
+                        duration_sec=top.duration_sec,
+                        score=top.score,
+                        chosen=True,
+                    )
+                    session.add(sc)
+                    await session.flush()
+
+                    # Set cover if missing
+                    if not track.cover_url:
+                        thumb = youtube_thumbnail_url(top.external_id) or youtube_thumbnail_url(top.url)
+                        if thumb:
+                            track.cover_url = thumb
+
+                    # Enqueue download
+                    try:
+                        await enqueue_download(
+                            track_id=track.id,
+                            candidate_id=sc.id,
+                            provider=DownloadProvider.yt_dlp,
+                            force=False,
+                            session=session,
+                        )
+                        retried += 1
+                    except HTTPException:
+                        # Skip on errors
+                        skipped += 1
+                        continue
+
+                except Exception as e:
+                    logger.error(f"Error retrying track {track.id}: {str(e)}")
+                    skipped += 1
+                    continue
+
+            await session.commit()
+            
+            logger.info(
+                f"Completed retry_not_found for playlist {playlist_id}: "
+                f"{retried} retried, {skipped} skipped"
+            )
+
+    except Exception as e:
+        logger.error(f"Error in retry_not_found background task for playlist {playlist_id}: {str(e)}")
 
 
 async def _get_valid_token(session: AsyncSession, account_id: int) -> str:

@@ -394,10 +394,9 @@ def score_result(
     
     if candidates:
         score_dict = candidates[0].get("score", {})
-        # Normalize score to old scale (0..1+) by dividing by 100
+        # Return raw score from RankingService (0-200 scale)
         raw_score = score_dict.get("total", 0)
-        normalized_score = round(raw_score / 100.0, 6)
-        return normalized_score
+        return round(raw_score, 2)
     
     return 0.0
 
@@ -437,8 +436,8 @@ def score_result_with_breakdown(
     if candidates:
         score_dict = candidates[0].get("score", {})
         raw_score = score_dict.get("total", 0)
-        normalized_score = round(raw_score / 100.0, 6)
-        return (normalized_score, score_dict)
+        # Return raw score from RankingService (0-200 scale) for consistency with get_score_components
+        return (round(raw_score, 2), score_dict)
     
     return (0.0, None)
 

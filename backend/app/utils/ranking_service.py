@@ -475,38 +475,55 @@ class RankingService:
                 for keyword in self.config.EXTENDED_KEYWORDS
             )
             
-            if not has_extended_keyword and explicit_extended_durations:
+            if not has_extended_keyword:
                 breakdown = candidate['_breakdown_obj']
                 candidate_duration = self.parse_duration(candidate['length'])
-                
-                # Check if this candidate has similar duration to explicit extended versions
-                # and has good artist/title scores
                 artist_score = breakdown.components['artist']
                 title_score = breakdown.components['title']
                 
-                # Must have minimum quality scores
-                if (artist_score >= self.config.EXTENDED_MIN_ARTIST_SCORE and 
-                    title_score >= self.config.EXTENDED_MIN_TITLE_SCORE):
-                    
-                    # Check if duration is similar to explicit extended versions
-                    for ext_duration in explicit_extended_durations:
-                        duration_diff = abs(candidate_duration - ext_duration)
-                        # If within 20 seconds of an explicit extended version
-                        if duration_diff <= 20:
-                            # And significantly longer than query
-                            if candidate_duration > query_duration * 1.3:
-                                # Award implicit extended bonus (smaller than explicit)
-                                # This helps identify unlabeled extended versions but doesn't make them win over labeled ones
-                                implicit_bonus = self.config.EXTENDED_LARGE_BONUS * 0.5  # 50% of explicit bonus
-                                breakdown.add_detail(
-                                    "extended.implicit",
-                                    implicit_bonus,
-                                    "extended",
-                                    f"Implicit extended version (similar duration to explicit extended: {ext_duration}s)"
-                                )
-                                # Update the score dict
-                                candidate['score'] = breakdown.to_dict()
-                                break
+                # Strategy 1: Match duration with explicit extended versions (if any exist)
+                if explicit_extended_durations:
+                    # Must have minimum quality scores
+                    if (artist_score >= self.config.EXTENDED_MIN_ARTIST_SCORE and 
+                        title_score >= self.config.EXTENDED_MIN_TITLE_SCORE):
+                        
+                        # Check if duration is similar to explicit extended versions
+                        for ext_duration in explicit_extended_durations:
+                            duration_diff = abs(candidate_duration - ext_duration)
+                            # If within 20 seconds of an explicit extended version
+                            if duration_diff <= 20:
+                                # And significantly longer than query
+                                if candidate_duration > query_duration * 1.3:
+                                    # Award implicit extended bonus (smaller than explicit)
+                                    implicit_bonus = self.config.EXTENDED_LARGE_BONUS * 0.5  # 50% of explicit bonus
+                                    breakdown.add_detail(
+                                        "extended.implicit",
+                                        implicit_bonus,
+                                        "extended",
+                                        f"Implicit extended version (similar duration to explicit extended: {ext_duration}s)"
+                                    )
+                                    # Update the score dict
+                                    candidate['score'] = breakdown.to_dict()
+                                    break
+                
+                # Strategy 2: Detect extended versions by duration alone (no explicit reference needed)
+                # If duration is approximately double (1.8x to 3.0x) the query duration
+                # This catches cases like Cizzzla - Papi where 4:54 is ~2.6x of 1:52
+                # IMPORTANT: Require high combined score to avoid matching unrelated long mixes
+                combined_score = artist_score + title_score
+                if (candidate_duration >= query_duration * 1.8 and 
+                    candidate_duration <= query_duration * 3.0 and
+                    combined_score >= 100):  # Require strong match to avoid false positives on DJ mixes, etc.
+                    # Award strong bonus for likely extended version based on duration alone
+                    standalone_extended_bonus = self.config.EXTENDED_LARGE_BONUS * 1.8  # 180% of explicit bonus to overcome Topic channel bonus
+                    breakdown.add_detail(
+                        "extended.implicit-standalone",
+                        standalone_extended_bonus,
+                        "extended",
+                        f"Likely extended version (duration {candidate_duration}s is ~{candidate_duration/query_duration:.1f}x query {query_duration}s, combined score: {combined_score:.0f})"
+                    )
+                    # Update the score dict
+                    candidate['score'] = breakdown.to_dict()
         
         # Sort by score descending, then by original index for tie-breaking
         scored_candidates.sort(key=lambda c: (-c['score']['total'], c['_original_index']))

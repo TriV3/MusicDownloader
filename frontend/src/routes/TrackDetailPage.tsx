@@ -66,6 +66,12 @@ export const TrackDetailPage: React.FC = () => {
   const [track, setTrack] = React.useState<TrackRead | null>(null)
   const [identities, setIdentities] = React.useState<TrackIdentity[]>([])
   const [candidates, setCandidates] = React.useState<Candidate[]>([])
+  const [searchInfo, setSearchInfo] = React.useState<{
+    primary_query: string
+    queries_normal: string[]
+    queries_extended: string[]
+    search_attempts: any[]
+  } | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   
@@ -270,6 +276,15 @@ export const TrackDetailPage: React.FC = () => {
           setIdentities([])
         }
 
+        // Load search info
+        const searchInfoResponse = await fetch(`/api/v1/tracks/${trackId}/search_info`)
+        if (searchInfoResponse.ok) {
+          const searchInfoData = await searchInfoResponse.json()
+          setSearchInfo(searchInfoData)
+        } else {
+          setSearchInfo(null)
+        }
+
         // Load candidates
         const candidatesResponse = await fetch(`/api/v1/candidates/enriched?track_id=${trackId}`)
         if (candidatesResponse.ok) {
@@ -419,6 +434,67 @@ export const TrackDetailPage: React.FC = () => {
           <p>No identities found for this track.</p>
         )}
       </section>
+
+      {/* YouTube Search Query Info */}
+      {searchInfo && (
+        <section className="youtube-search-info">
+          <h2>YouTube Search Query</h2>
+          <div className="search-query-info">
+            <div className="query-section">
+              <h4>Primary Search Query:</h4>
+              <code className="search-query">{searchInfo.primary_query}</code>
+            </div>
+            
+            {searchInfo.queries_normal && searchInfo.queries_normal.length > 1 && (
+              <details className="query-variants">
+                <summary>All Normal Query Variants ({searchInfo.queries_normal.length})</summary>
+                <ul>
+                  {searchInfo.queries_normal.map((q, idx) => (
+                    <li key={idx}><code>{q}</code></li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            
+            {searchInfo.queries_extended && searchInfo.queries_extended.length > 0 && (
+              <details className="query-variants">
+                <summary>Extended Mix Query Variants ({searchInfo.queries_extended.length})</summary>
+                <ul>
+                  {searchInfo.queries_extended.map((q, idx) => (
+                    <li key={idx}><code>{q}</code></li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            
+            {searchInfo.search_attempts && searchInfo.search_attempts.length > 0 && (
+              <div className="search-attempts">
+                <h4>Search History:</h4>
+                <table className="attempts-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Provider</th>
+                      <th>Results</th>
+                      <th>Extended</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {searchInfo.search_attempts.map((attempt) => (
+                      <tr key={attempt.id}>
+                        <td>{formatDate(attempt.attempted_at)}</td>
+                        <td>{attempt.provider}</td>
+                        <td>{attempt.results_count}</td>
+                        <td>{attempt.prefer_extended ? 'Yes' : 'No'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* YouTube Search */}
       <section className="youtube-search">

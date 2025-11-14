@@ -228,6 +228,7 @@ class LibraryFile(Base):
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     checksum_sha256: Mapped[Optional[str]] = mapped_column(String(100))
     exists: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    actual_duration_ms: Mapped[Optional[int]] = mapped_column(Integer)  # Actual duration from audio file (ffprobe)
 
     track: Mapped[Track] = relationship(backref="files")
 

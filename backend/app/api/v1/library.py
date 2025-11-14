@@ -45,10 +45,10 @@ router = APIRouter(prefix="/library/files", tags=["library"])
 async def list_library_files(
     session: AsyncSession = Depends(get_session),
     track_id: Optional[int] = Query(None),
-    limit: int = Query(500, ge=1, le=500),
+    limit: int = Query(500, ge=1, le=10000),
     offset: int = Query(0, ge=0),
 ):
-    stmt = select(LibraryFile)
+    stmt = select(LibraryFile).where(LibraryFile.exists == True)  # noqa: E712
     if track_id is not None:
         stmt = stmt.where(LibraryFile.track_id == track_id)
     stmt = stmt.order_by(desc(LibraryFile.id)).limit(limit).offset(offset)
@@ -61,10 +61,15 @@ async def list_library_files(
 async def list_library_files_no_slash(
     session: AsyncSession = Depends(get_session),
     track_id: Optional[int] = Query(None),
-    limit: int = Query(500, ge=1, le=500),
+    limit: int = Query(500, ge=1, le=10000),
     offset: int = Query(0, ge=0),
 ):
-    return await list_library_files(session=session, track_id=track_id, limit=limit, offset=offset)
+    stmt = select(LibraryFile).where(LibraryFile.exists == True)  # noqa: E712
+    if track_id is not None:
+        stmt = stmt.where(LibraryFile.track_id == track_id)
+    stmt = stmt.order_by(desc(LibraryFile.id)).limit(limit).offset(offset)
+    result = await session.execute(stmt)
+    return result.scalars().all()
 
 
 @router.get("/{file_id}", response_model=LibraryFileRead)
@@ -407,40 +412,43 @@ async def scan_library(
                 checksum = _sha256_file(p)
 
             # Optionally analyze media metadata to backfill Track.duration_ms when missing
+            actual_duration_ms = None
             if analyze_metadata:
                 try:
                     from sqlalchemy import select as _select
                     # Fetch track to check/update duration
                     t_res = await session.execute(_select(Track).where(Track.id == track_id))
                     t = t_res.scalars().first()
-                    if t and (t.duration_ms is None or t.duration_ms == 0):
-                        # Run ffprobe (available in Docker image; optional on dev machines)
-                        import subprocess, json
-                        cmd = [
-                            "ffprobe", "-v", "error", "-select_streams", "a:0",
-                            "-show_entries", "format=duration", "-of", "json", str(p)
-                        ]
-                        try:
-                            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-                            if proc.returncode == 0 and proc.stdout:
-                                data = json.loads(proc.stdout)
-                                # ffprobe might return duration under format.duration (string)
-                                dur = None
-                                if isinstance(data, dict):
-                                    fmt = data.get("format") or {}
-                                    d = fmt.get("duration")
-                                    if isinstance(d, str):
-                                        try:
-                                            dur = float(d)
-                                        except Exception:
-                                            dur = None
-                                if dur and dur > 0:
-                                    t.duration_ms = int(dur * 1000)
+                    # Run ffprobe to get actual duration from file
+                    import subprocess, json
+                    cmd = [
+                        "ffprobe", "-v", "error", "-select_streams", "a:0",
+                        "-show_entries", "format=duration", "-of", "json", str(p)
+                    ]
+                    try:
+                        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                        if proc.returncode == 0 and proc.stdout:
+                            data = json.loads(proc.stdout)
+                            # ffprobe might return duration under format.duration (string)
+                            dur = None
+                            if isinstance(data, dict):
+                                fmt = data.get("format") or {}
+                                d = fmt.get("duration")
+                                if isinstance(d, str):
+                                    try:
+                                        dur = float(d)
+                                    except Exception:
+                                        dur = None
+                            if dur and dur > 0:
+                                actual_duration_ms = int(dur * 1000)
+                                # Also backfill Track.duration_ms if missing
+                                if t and (t.duration_ms is None or t.duration_ms == 0):
+                                    t.duration_ms = actual_duration_ms
                                     # Flush to persist update alongside LibraryFile upserts
                                     await session.flush()
-                        except Exception:
-                            # Ignore ffprobe failures; proceed without duration
-                            pass
+                    except Exception:
+                        # Ignore ffprobe failures; proceed without duration
+                        pass
                 except Exception:
                     # If model imports fail in alternate run modes, skip metadata.
                     pass
@@ -454,6 +462,8 @@ async def scan_library(
                 if compute_checksum:
                     lf.checksum_sha256 = checksum
                 lf.exists = True
+                if actual_duration_ms is not None:
+                    lf.actual_duration_ms = actual_duration_ms
                 updated += 1
             else:
                 lf = LibraryFile(
@@ -463,6 +473,7 @@ async def scan_library(
                     file_size=size,
                     checksum_sha256=checksum,
                     exists=True,
+                    actual_duration_ms=actual_duration_ms,
                 )
                 session.add(lf)
                 added += 1

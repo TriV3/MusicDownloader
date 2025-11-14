@@ -32,6 +32,67 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   margin-bottom: var(--spacing-lg);
+  position: relative;
+}
+
+/* Column toggle menu */
+.column-toggle-wrapper {
+  position: relative;
+}
+
+.column-toggle-button {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+.column-toggle-button:hover {
+  background: var(--bg-tertiary);
+  transform: translateY(-1px);
+}
+
+.column-toggle-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--spacing-xs);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  z-index: 1000;
+  min-width: 150px;
+}
+
+.column-toggle-menu label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease-in-out;
+}
+
+.column-toggle-menu label:hover {
+  background: var(--bg-secondary);
+}
+
+.column-toggle-menu input[type="checkbox"] {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
 }
 
 .tracks-controls select,
@@ -85,6 +146,7 @@
   overflow: hidden;
   box-shadow: var(--shadow-sm);
   font-size: 0.8125rem;
+  table-layout: auto; /* allow responsive width adjustment */
 }
 
 .tracks-table thead th {
@@ -297,6 +359,17 @@
   font-size: 0.625rem;
 }
 
+.tracks-table thead .filter-duration {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tracks-table thead .filter-duration input {
+  width: 80px;
+  font-size: 0.625rem;
+}
+
 .tracks-table thead .reset-button {
   font-size: 0.625rem;
   padding: 2px 6px;
@@ -361,9 +434,12 @@
 
 /* Responsive design */
 @media (max-width: 1200px) {
-  .tracks-table .col-playlists,
-  .tracks-table .col-genre,
-  .tracks-table .col-bpm {
+  .tracks-table .col-playlists {
+    display: none;
+  }
+  
+  .tracks-table thead th:nth-child(7), /* Playlists (when ID/Pos/Downloaded hidden) */
+  .tracks-table tbody td:nth-child(7) {
     display: none;
   }
 }
@@ -411,6 +487,20 @@
     display: block;
     overflow-x: auto;
     font-size: 0.75rem;
+    min-width: 100%;
+  }
+
+  .tracks-table thead,
+  .tracks-table tbody,
+  .tracks-table tr {
+    display: table;
+    table-layout: auto;
+    min-width: 600px; /* minimum width to prevent excessive column compression */
+  }
+
+  .tracks-table thead,
+  .tracks-table tbody {
+    width: 100%;
   }
   
   .tracks-table thead th {

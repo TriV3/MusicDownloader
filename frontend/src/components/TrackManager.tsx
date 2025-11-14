@@ -17,6 +17,7 @@ export type TrackRead = {
   artists: string
   album?: string | null
   duration_ms?: number | null
+  actual_duration_ms?: number | null  // Actual duration from downloaded file
   isrc?: string | null
   year?: number | null
   explicit: boolean
@@ -54,14 +55,32 @@ export const TrackManager: React.FC = () => {
   const [filterGenre, setFilterGenre] = React.useState('')
   const [filterPlaylistName, setFilterPlaylistName] = React.useState('')
   const [filterDownloaded, setFilterDownloaded] = React.useState<'all' | 'yes' | 'no'>('all')
+  const [filterDurationMin, setFilterDurationMin] = React.useState('') // in format M:SS
+  const [filterDurationMax, setFilterDurationMax] = React.useState('') // in format M:SS
+  const [filterActualDurationMin, setFilterActualDurationMin] = React.useState('') // in format M:SS
+  const [filterActualDurationMax, setFilterActualDurationMax] = React.useState('') // in format M:SS
   // Removed audio feature filters (tempo, energy, danceability)
   const [filterCreatedFrom, setFilterCreatedFrom] = React.useState('') // date input (YYYY-MM-DD)
   const [filterCreatedTo, setFilterCreatedTo] = React.useState('')
+
+  // Column visibility state
+  const [showIdColumn, setShowIdColumn] = React.useState(false)
+  const [showPosColumn, setShowPosColumn] = React.useState(false)
+  const [showDownloadedColumn, setShowDownloadedColumn] = React.useState(false)
+  const [showGenreColumn, setShowGenreColumn] = React.useState(false)
+  const [showBpmColumn, setShowBpmColumn] = React.useState(false)
+  const [showDurationColumn, setShowDurationColumn] = React.useState(false)
+  const [showSpotifyAddedColumn, setShowSpotifyAddedColumn] = React.useState(false)
+  const [showPlaylistAddedColumn, setShowPlaylistAddedColumn] = React.useState(false)
+  const [showPlaylistsColumn, setShowPlaylistsColumn] = React.useState(false)
+  const [showColumnMenu, setShowColumnMenu] = React.useState(false)
 
   // Sorting state
   // Default: playlist_added desc (most recent first)
   const [spotifyAddedAsc, setSpotifyAddedAsc] = React.useState<boolean | null>(null)
   const [playlistAddedAsc, setPlaylistAddedAsc] = React.useState<boolean | null>(false) // false = descending (most recent first)
+  const [durationAsc, setDurationAsc] = React.useState<boolean | null>(null) // null = no sorting, true = ascending, false = descending
+  const [actualDurationAsc, setActualDurationAsc] = React.useState<boolean | null>(null) // null = no sorting, true = ascending, false = descending
 
   const loadingRef = React.useRef(false)
   // Removed mountedRef pattern to avoid suppressing legitimate late responses; rely on aborting fetches instead if needed.
@@ -71,7 +90,7 @@ export const TrackManager: React.FC = () => {
     setReloading(true)
     try {
       if (selectedPlaylistId === 'all') {
-        const r = await fetch('/api/v1/tracks/with_playlist_info?limit=1000')
+        const r = await fetch('/api/v1/tracks/with_playlist_info?limit=10000')
         if (!r.ok) throw new Error('tracks fetch failed')
         const data = await r.json()
   setEntriesByPlaylist([])
@@ -160,7 +179,7 @@ export const TrackManager: React.FC = () => {
   // Load library files to mark downloaded tracks
   const loadLibraryFlags = React.useCallback(async () => {
     try {
-      const r = await fetch('/api/v1/library/files?limit=500')
+      const r = await fetch('/api/v1/library/files?limit=10000')
       if (!r.ok) return
       const files = await r.json()
       const ids = new Set<number>()
@@ -316,6 +335,130 @@ export const TrackManager: React.FC = () => {
     }, audioUrl)
   }
 
+  // Compute filtered and sorted tracks
+  const filteredTracks = React.useMemo(() => {
+    let derived = tracks
+    if (filterId.trim()) {
+      const asNum = Number(filterId.trim())
+      if (!isNaN(asNum)) derived = derived.filter(t => t.id === asNum)
+      else derived = derived.filter(t => String(t.id).includes(filterId.trim()))
+    }
+    if (filterArtists.trim()) {
+      const q = filterArtists.toLowerCase()
+      derived = derived.filter(t => t.artists.toLowerCase().includes(q))
+    }
+    if (filterTitle.trim()) {
+      const q = filterTitle.toLowerCase()
+      derived = derived.filter(t => t.title.toLowerCase().includes(q))
+    }
+    if (filterGenre.trim()) {
+      const q = filterGenre.toLowerCase()
+      derived = derived.filter(t => (t.genre || '').toLowerCase().includes(q))
+    }
+    if (filterPlaylistName.trim()) {
+      const q = filterPlaylistName.toLowerCase()
+      derived = derived.filter(t => {
+        const m = memberships[t.id]
+        if (!Array.isArray(m) || m.length === 0) return false
+        return m.some(pl => pl.playlist_name.toLowerCase().includes(q))
+      })
+    }
+    if (filterDownloaded !== 'all') {
+      derived = derived.filter(t => filterDownloaded === 'yes' ? downloadedIds.has(t.id) : !downloadedIds.has(t.id))
+    }
+    // Duration filter
+    const parseDuration = (str: string): number | null => {
+      const match = str.trim().match(/^(\d+):(\d{1,2})$/)
+      if (!match) return null
+      const minutes = parseInt(match[1], 10)
+      const seconds = parseInt(match[2], 10)
+      if (seconds >= 60) return null
+      return (minutes * 60 + seconds) * 1000
+    }
+    if (filterDurationMin.trim()) {
+      const minMs = parseDuration(filterDurationMin)
+      if (minMs !== null) {
+        derived = derived.filter(t => t.duration_ms != null && t.duration_ms >= minMs)
+      }
+    }
+    if (filterDurationMax.trim()) {
+      const maxMs = parseDuration(filterDurationMax)
+      if (maxMs !== null) {
+        derived = derived.filter(t => t.duration_ms != null && t.duration_ms <= maxMs)
+      }
+    }
+    if (filterActualDurationMin.trim()) {
+      const minMs = parseDuration(filterActualDurationMin)
+      if (minMs !== null) {
+        derived = derived.filter(t => t.actual_duration_ms != null && t.actual_duration_ms >= minMs)
+      }
+    }
+    if (filterActualDurationMax.trim()) {
+      const maxMs = parseDuration(filterActualDurationMax)
+      if (maxMs !== null) {
+        derived = derived.filter(t => t.actual_duration_ms != null && t.actual_duration_ms <= maxMs)
+      }
+    }
+    if (filterCreatedFrom) {
+      const from = new Date(filterCreatedFrom).getTime()
+      derived = derived.filter(t => t.release_date && new Date(t.release_date).getTime() >= from)
+    }
+    if (filterCreatedTo) {
+      const to = new Date(filterCreatedTo + 'T23:59:59').getTime()
+      derived = derived.filter(t => t.release_date && new Date(t.release_date).getTime() <= to)
+    }
+    // Sorting logic
+    if (spotifyAddedAsc !== null) {
+      derived = [...derived].sort((a, b) => {
+        const da = a.release_date ? new Date(a.release_date).getTime() : 0
+        const db = b.release_date ? new Date(b.release_date).getTime() : 0
+        if (da === 0 && db === 0) return 0
+        if (da === 0) return 1
+        if (db === 0) return -1
+        return spotifyAddedAsc ? da - db : db - da
+      })
+    } else if (playlistAddedAsc !== null) {
+      derived = [...derived].sort((a, b) => {
+        const getEarliestPlaylistDate = (track: TrackRead) => {
+          if (!track.playlists || track.playlists.length === 0) return null
+          const dates = track.playlists
+            .map(p => p.playlist_added_at)
+            .filter(date => date)
+            .map(date => new Date(date!).getTime())
+          return dates.length > 0 ? Math.min(...dates) : null
+        }
+        const da = getEarliestPlaylistDate(a)
+        const db = getEarliestPlaylistDate(b)
+        if (da === null && db === null) return 0
+        if (da === null) return 1
+        if (db === null) return -1
+        return playlistAddedAsc ? da - db : db - da
+      })
+    } else if (durationAsc !== null) {
+      derived = [...derived].sort((a, b) => {
+        const da = a.duration_ms ?? 0
+        const db = b.duration_ms ?? 0
+        if (da === 0 && db === 0) return 0
+        if (da === 0) return 1
+        if (db === 0) return -1
+        return durationAsc ? da - db : db - da
+      })
+    } else if (actualDurationAsc !== null) {
+      derived = [...derived].sort((a, b) => {
+        const da = a.actual_duration_ms ?? 0
+        const db = b.actual_duration_ms ?? 0
+        if (da === 0 && db === 0) return 0
+        if (da === 0) return 1
+        if (db === 0) return -1
+        return actualDurationAsc ? da - db : db - da
+      })
+    }
+    return derived
+  }, [tracks, filterId, filterArtists, filterTitle, filterGenre, filterPlaylistName, filterDownloaded, 
+      filterDurationMin, filterDurationMax, filterActualDurationMin, filterActualDurationMax,
+      filterCreatedFrom, filterCreatedTo, spotifyAddedAsc, playlistAddedAsc, durationAsc, actualDurationAsc,
+      memberships, downloadedIds])
+
   return (
     <section>
       <div className="tracks-controls">
@@ -332,6 +475,24 @@ export const TrackManager: React.FC = () => {
     <button onClick={() => { loadTracks(); loadLibraryFlags() }} disabled={reloading}>{reloading ? 'Refreshing…' : 'Refresh'}</button>
     <button onClick={reindexLibrary} title="Disk → DB: Scan the library folder and link files to existing tracks; also updates missing durations using ffprobe when available">Reindex Library (Disk → DB)</button>
     <button onClick={reverseReindex} title="Tracks → Disk: Verify tracks in DB against files on disk and link missing LibraryFile entries">Reverse Reindex (Tracks → Disk)</button>
+        <div className="column-toggle-wrapper">
+          <button className="column-toggle-button" onClick={() => setShowColumnMenu(!showColumnMenu)} title="Show/hide columns">
+            ⚙️
+          </button>
+          {showColumnMenu && (
+            <div className="column-toggle-menu">
+              <label><input type="checkbox" checked={showIdColumn} onChange={e => setShowIdColumn(e.target.checked)} /> ID</label>
+              <label><input type="checkbox" checked={showPosColumn} onChange={e => setShowPosColumn(e.target.checked)} /> Position</label>
+              <label><input type="checkbox" checked={showDownloadedColumn} onChange={e => setShowDownloadedColumn(e.target.checked)} /> Downloaded</label>
+              <label><input type="checkbox" checked={showGenreColumn} onChange={e => setShowGenreColumn(e.target.checked)} /> Genre</label>
+              <label><input type="checkbox" checked={showBpmColumn} onChange={e => setShowBpmColumn(e.target.checked)} /> BPM</label>
+              <label><input type="checkbox" checked={showDurationColumn} onChange={e => setShowDurationColumn(e.target.checked)} /> Duration</label>
+              <label><input type="checkbox" checked={showSpotifyAddedColumn} onChange={e => setShowSpotifyAddedColumn(e.target.checked)} /> Spotify Added</label>
+              <label><input type="checkbox" checked={showPlaylistAddedColumn} onChange={e => setShowPlaylistAddedColumn(e.target.checked)} /> Playlist Added</label>
+              <label><input type="checkbox" checked={showPlaylistsColumn} onChange={e => setShowPlaylistsColumn(e.target.checked)} /> Playlists</label>
+            </div>
+          )}
+        </div>
       </div>
       {preview && (
         <div style={{ marginBottom: 12, fontSize: 13, fontFamily: 'var(--font-mono)', background: 'var(--bg-secondary)', padding: 8, borderRadius: 'var(--radius-sm)' }}>
@@ -341,48 +502,81 @@ export const TrackManager: React.FC = () => {
       <table className="tracks-table">
         <thead>
           <tr style={{ textAlign: 'left' }}>
-            {selectedPlaylistId !== 'all' && <th>Pos</th>}
-            <th>ID</th>
+            {selectedPlaylistId !== 'all' && showPosColumn && <th>Pos</th>}
+            {showIdColumn && <th>ID</th>}
             <th>DL</th>
             <th>Cover</th>
             <th>Artists</th>
             <th>Title</th>
-            <th>Playlists</th>
-            {/* Removed Tempo / Energy / Dance columns */}
-            <th>Genre</th>
-            <th>BPM</th>
-            <th>Duration</th>
-            <th>
+            {showPlaylistsColumn && <th>Playlists</th>}
+            {showGenreColumn && <th>Genre</th>}
+            {showBpmColumn && <th>BPM</th>}
+            {showDurationColumn && (
+              <th>
+                <button 
+                  className={`sort-button ${durationAsc !== null ? 'active' : ''}`}
+                  onClick={() => {
+                    setSpotifyAddedAsc(null)
+                    setPlaylistAddedAsc(null)
+                    setDurationAsc(p => p === null ? false : (p ? false : true))
+                  }} 
+                  title='Click to toggle sort by duration'
+                >
+                  Duration {durationAsc === null ? '' : durationAsc ? '▲' : '▼'}
+                </button>
+              </th>
+            )}
+            <th title="Actual duration from downloaded file" className="col-actual-duration">
               <button 
-                className={`sort-button ${spotifyAddedAsc !== null ? 'active' : ''}`}
-                onClick={() => {
-                  setPlaylistAddedAsc(null)
-                  setSpotifyAddedAsc(p => p === null ? false : (p ? false : true))
-                }} 
-                title='Click to toggle sort by Spotify library added date'
-              >
-                Spotify Added {spotifyAddedAsc === null ? '' : spotifyAddedAsc ? '▲' : '▼'}
-              </button>
-            </th>
-            <th>
-              <button 
-                className={`sort-button ${playlistAddedAsc !== null ? 'active' : ''}`}
+                className={`sort-button ${actualDurationAsc !== null ? 'active' : ''}`}
                 onClick={() => {
                   setSpotifyAddedAsc(null)
-                  setPlaylistAddedAsc(p => p === null ? false : (p ? false : true))
+                  setPlaylistAddedAsc(null)
+                  setDurationAsc(null)
+                  setActualDurationAsc(p => p === null ? false : (p ? false : true))
                 }} 
-                title='Click to toggle sort by playlist added date'
+                title='Click to toggle sort by actual duration'
               >
-                Playlist Added {playlistAddedAsc === null ? '' : playlistAddedAsc ? '▲' : '▼'}
+                <span className="actual-duration-label">Actual<br/>Duration</span> {actualDurationAsc === null ? '' : actualDurationAsc ? '▲' : '▼'}
               </button>
             </th>
-            <th>Downloaded</th>
+            {showSpotifyAddedColumn && (
+              <th>
+                <button 
+                  className={`sort-button ${spotifyAddedAsc !== null ? 'active' : ''}`}
+                  onClick={() => {
+                    setPlaylistAddedAsc(null)
+                    setDurationAsc(null)
+                    setSpotifyAddedAsc(p => p === null ? false : (p ? false : true))
+                  }} 
+                  title='Click to toggle sort by Spotify library added date'
+                >
+                  Spotify Added {spotifyAddedAsc === null ? '' : spotifyAddedAsc ? '▲' : '▼'}
+                </button>
+              </th>
+            )}
+            {showPlaylistAddedColumn && (
+              <th>
+                <button 
+                  className={`sort-button ${playlistAddedAsc !== null ? 'active' : ''}`}
+                  onClick={() => {
+                    setSpotifyAddedAsc(null)
+                    setDurationAsc(null)
+                    setPlaylistAddedAsc(p => p === null ? false : (p ? false : true))
+                  }} 
+                  title='Click to toggle sort by playlist added date'
+                >
+                  Playlist Added {playlistAddedAsc === null ? '' : playlistAddedAsc ? '▲' : '▼'}
+                </button>
+              </th>
+            )}
+            {showDownloadedColumn && <th>Downloaded</th>}
             <th>Actions</th>
           </tr>
           {/* Filter row */}
           <tr>
-            {selectedPlaylistId !== 'all' && <th />}
-            <th><input value={filterId} onChange={e => setFilterId(e.target.value)} placeholder='ID' /></th>
+            {selectedPlaylistId !== 'all' && showPosColumn && <th />}
+            {showIdColumn && <th><input value={filterId} onChange={e => setFilterId(e.target.value)} placeholder='ID' /></th>}
             <th>
               <select value={filterDownloaded} onChange={e => setFilterDownloaded(e.target.value as any)}>
                 <option value='all'>All</option>
@@ -393,112 +587,51 @@ export const TrackManager: React.FC = () => {
             <th />
             <th><input value={filterArtists} onChange={e => setFilterArtists(e.target.value)} placeholder='Artists' /></th>
             <th><input value={filterTitle} onChange={e => setFilterTitle(e.target.value)} placeholder='Title' /></th>
-            <th><input value={filterPlaylistName} onChange={e => setFilterPlaylistName(e.target.value)} placeholder='Playlist' /></th>
-            <th><input value={filterGenre} onChange={e => setFilterGenre(e.target.value)} placeholder='Genre' /></th>
-            <th />
-            <th />
-            <th />
+            {showPlaylistsColumn && <th><input value={filterPlaylistName} onChange={e => setFilterPlaylistName(e.target.value)} placeholder='Playlist' /></th>}
+            {showGenreColumn && <th><input value={filterGenre} onChange={e => setFilterGenre(e.target.value)} placeholder='Genre' /></th>}
+            {showBpmColumn && <th />}
+            {showDurationColumn && (
+              <th>
+                <div className="filter-duration">
+                  <input value={filterDurationMin} onChange={e => setFilterDurationMin(e.target.value)} placeholder='Min (M:SS)' />
+                  <input value={filterDurationMax} onChange={e => setFilterDurationMax(e.target.value)} placeholder='Max (M:SS)' />
+                </div>
+              </th>
+            )}
             <th>
-              <div className="filter-dates">
-                <input type='date' value={filterCreatedFrom} onChange={e => setFilterCreatedFrom(e.target.value)} />
-                <input type='date' value={filterCreatedTo} onChange={e => setFilterCreatedTo(e.target.value)} />
+              <div className="filter-duration">
+                <input value={filterActualDurationMin} onChange={e => setFilterActualDurationMin(e.target.value)} placeholder='Min (M:SS)' />
+                <input value={filterActualDurationMax} onChange={e => setFilterActualDurationMax(e.target.value)} placeholder='Max (M:SS)' />
               </div>
             </th>
-            <th />
+            {showSpotifyAddedColumn && <th />}
+            {showPlaylistAddedColumn && (
+              <th>
+                <div className="filter-dates">
+                  <input type='date' value={filterCreatedFrom} onChange={e => setFilterCreatedFrom(e.target.value)} />
+                  <input type='date' value={filterCreatedTo} onChange={e => setFilterCreatedTo(e.target.value)} />
+                </div>
+              </th>
+            )}
+            {showDownloadedColumn && <th />}
             <th>
               <button className="reset-button" onClick={() => {
                 setFilterId(''); setFilterArtists(''); setFilterTitle(''); setFilterGenre(''); setFilterPlaylistName('');
                 setFilterDownloaded('all');
+                setFilterDurationMin(''); setFilterDurationMax('');
+                setFilterActualDurationMin(''); setFilterActualDurationMax('');
                 setFilterCreatedFrom(''); setFilterCreatedTo('');
               }}>Reset</button>
             </th>
           </tr>
         </thead>
         <tbody>
-          {(() => {
-            // Derived filtering + sorting
-            let derived = tracks
-            if (filterId.trim()) {
-              const asNum = Number(filterId.trim())
-              if (!isNaN(asNum)) derived = derived.filter(t => t.id === asNum)
-              else derived = derived.filter(t => String(t.id).includes(filterId.trim()))
-            }
-            if (filterArtists.trim()) {
-              const q = filterArtists.toLowerCase()
-              derived = derived.filter(t => t.artists.toLowerCase().includes(q))
-            }
-            if (filterTitle.trim()) {
-              const q = filterTitle.toLowerCase()
-              derived = derived.filter(t => t.title.toLowerCase().includes(q))
-            }
-            if (filterGenre.trim()) {
-              const q = filterGenre.toLowerCase()
-              derived = derived.filter(t => (t.genre || '').toLowerCase().includes(q))
-            }
-            if (filterPlaylistName.trim()) {
-              const q = filterPlaylistName.toLowerCase()
-              derived = derived.filter(t => {
-                const m = memberships[t.id]
-                if (!Array.isArray(m) || m.length === 0) return false
-                return m.some(pl => pl.playlist_name.toLowerCase().includes(q))
-              })
-            }
-            if (filterDownloaded !== 'all') {
-              derived = derived.filter(t => filterDownloaded === 'yes' ? downloadedIds.has(t.id) : !downloadedIds.has(t.id))
-            }
-            // Explicit filter removed
-            const parseNum = (v: string) => {
-              const n = Number(v)
-              return isNaN(n) ? null : n
-            }
-            // Removed tempo/energy/danceability filtering
-            if (filterCreatedFrom) {
-              const from = new Date(filterCreatedFrom).getTime()
-              derived = derived.filter(t => t.release_date && new Date(t.release_date).getTime() >= from)
-            }
-            if (filterCreatedTo) {
-              const to = new Date(filterCreatedTo + 'T23:59:59').getTime()
-              derived = derived.filter(t => t.release_date && new Date(t.release_date).getTime() <= to)
-            }
-            // Sorting logic
-            if (spotifyAddedAsc !== null) {
-              derived = [...derived].sort((a, b) => {
-                const da = a.release_date ? new Date(a.release_date).getTime() : 0
-                const db = b.release_date ? new Date(b.release_date).getTime() : 0
-                // Put tracks without release date at the end
-                if (da === 0 && db === 0) return 0
-                if (da === 0) return 1
-                if (db === 0) return -1
-                return spotifyAddedAsc ? da - db : db - da
-              })
-            } else if (playlistAddedAsc !== null) {
-              derived = [...derived].sort((a, b) => {
-                // Get the earliest playlist addition date for each track
-                const getEarliestPlaylistDate = (track: TrackRead) => {
-                  if (!track.playlists || track.playlists.length === 0) return null
-                  const dates = track.playlists
-                    .map(p => p.playlist_added_at)
-                    .filter(date => date)
-                    .map(date => new Date(date!).getTime())
-                  return dates.length > 0 ? Math.min(...dates) : null
-                }
-                
-                const da = getEarliestPlaylistDate(a)
-                const db = getEarliestPlaylistDate(b)
-                
-                // Put tracks without playlist dates at the end
-                if (da === null && db === null) return 0
-                if (da === null) return 1
-                if (db === null) return -1
-                return playlistAddedAsc ? da - db : db - da
-              })
-            }
-            return derived.map((t, idx) => {
+          {filteredTracks.map((t, idx) => {
             const entry = selectedPlaylistId === 'all' ? null : entriesByPlaylist.find(e => e.track.id === t.id)
             return (
             <tr key={t.id}>
-              {selectedPlaylistId !== 'all' && <td className="col-id">{entry?.position ?? (idx + 1)}</td>}
-              <td className="col-id">{t.id}</td>
+              {selectedPlaylistId !== 'all' && showPosColumn && <td className="col-id">{entry?.position ?? (idx + 1)}</td>}
+              {showIdColumn && <td className="col-id">{t.id}</td>}
               <td className="col-downloaded">
                 {downloadedIds.has(t.id) ? (
                   <button 
@@ -521,37 +654,43 @@ export const TrackManager: React.FC = () => {
               </td>
               <td className="col-artists">{t.artists}</td>
               <td className="col-title">{t.title}</td>
-              <td className="col-playlists">
-                {Array.isArray(memberships[t.id]) && memberships[t.id].length > 0 ? (
-                  memberships[t.id].map(pl => (
-                    <span key={`${t.id}-${pl.playlist_id}`} className="playlist-badge">
-                      {pl.playlist_name}{pl.position != null ? `#${pl.position}` : ''}
-                    </span>
-                  ))
-                ) : (
-                  <span style={{ opacity: 0.4 }}>—</span>
-                )}
+              {showPlaylistsColumn && (
+                <td className="col-playlists">
+                  {Array.isArray(memberships[t.id]) && memberships[t.id].length > 0 ? (
+                    memberships[t.id].map(pl => (
+                      <span key={`${t.id}-${pl.playlist_id}`} className="playlist-badge">
+                        {pl.playlist_name}{pl.position != null ? `#${pl.position}` : ''}
+                      </span>
+                    ))
+                  ) : (
+                    <span style={{ opacity: 0.4 }}>—</span>
+                  )}
+                </td>
+              )}
+              {showGenreColumn && <td className="col-genre">{t.genre ?? '-'}</td>}
+              {showBpmColumn && <td className="col-bpm">{t.bpm ?? '-'}</td>}
+              {showDurationColumn && <td className="col-duration">{t.duration_ms != null ? formatDuration(t.duration_ms) : '-'}</td>}
+              <td className="col-duration" title="Actual duration from downloaded file">
+                {t.actual_duration_ms != null ? formatDuration(t.actual_duration_ms) : '-'}
               </td>
-              <td className="col-genre">{t.genre ?? '-'}</td>
-              <td className="col-bpm">{t.bpm ?? '-'}</td>
-              <td className="col-duration">{t.duration_ms != null ? formatDuration(t.duration_ms) : '-'}</td>
-              <td className="col-dates">{t.release_date ? formatDate(t.release_date) : '-'}</td>
-              <td className="col-dates">
-                {t.playlists && t.playlists.length > 0 ? (
-                  t.playlists
-                    .filter(p => p.playlist_added_at)
-                    .map(p => formatDate(p.playlist_added_at!))
-                    .join(', ') || '-'
-                ) : '-'}
-              </td>
-              <td className="col-dates">{downloadedIds.has(t.id) ? 'Yes' : 'No'}</td>
+              {showSpotifyAddedColumn && <td className="col-dates">{t.release_date ? formatDate(t.release_date) : '-'}</td>}
+              {showPlaylistAddedColumn && (
+                <td className="col-dates">
+                  {t.playlists && t.playlists.length > 0 ? (
+                    t.playlists
+                      .filter(p => p.playlist_added_at)
+                      .map(p => formatDate(p.playlist_added_at!))
+                      .join(', ') || '-'
+                  ) : '-'}
+                </td>
+              )}
+              {showDownloadedColumn && <td className="col-dates">{downloadedIds.has(t.id) ? 'Yes' : 'No'}</td>}
               <td className="col-actions">
                 <Link to={`/tracks/${t.id}`}>View</Link>
                 <button onClick={() => remove(t.id)}>Delete</button>
               </td>
             </tr>
-            )})
-          })()}
+            )})}
           {tracks.length === 0 && !lastNonEmptyRef.current && (
             <tr>
               <td colSpan={17} className="tracks-empty">
@@ -570,7 +709,7 @@ export const TrackManager: React.FC = () => {
         </tbody>
       </table>
       <div className="tracks-stats">
-        <span>Showing: {tracks.length} track(s){selectedPlaylistId !== 'all' ? ` (playlist filter ${selectedPlaylistId})` : ''}</span>
+        <span>Showing: {filteredTracks.length} track(s){selectedPlaylistId !== 'all' ? ` (playlist filter ${selectedPlaylistId})` : ''}</span>
         {lastFetchedCount !== tracks.length && (
           <span className="mismatch">Mismatch: fetched {lastFetchedCount} vs rendered {tracks.length}</span>
         )}

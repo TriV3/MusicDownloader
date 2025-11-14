@@ -664,5 +664,33 @@
       }
     ],
     "expected_winners": ["c1", "c2"]
+  },
+  {
+    "query": {
+      "artists": "Cizzzla",
+      "title": "Papi",
+      "length": "1:52"
+    },
+    "candidates": [
+      {
+        "id": "c1",
+        "channel": "Cizzzla - Topic",
+        "title": "Papi",
+        "length": "1:53"
+      },
+      {
+        "id": "c2",
+        "channel": "Handpicked Music",
+        "title": "CIZZZLA - Papi",
+        "length": "4:54"
+      },
+      {
+        "id": "c3",
+        "channel": "Hybrid Slap House",
+        "title": "Cizzzla - Papi",
+        "length": "1:51"
+      }
+    ],
+    "expected_winner": "c2"
   }
 ]

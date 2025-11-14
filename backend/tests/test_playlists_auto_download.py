@@ -36,8 +36,8 @@ async def test_auto_download_playlist(monkeypatch):
         r = await ac.post("/api/v1/playlist_tracks/", json={"playlist_id": pl_id, "track_id": t2, "position": 2})
         assert r.status_code == 200
 
-        # Call auto_download
-        r = await ac.post(f"/api/v1/playlists/{pl_id}/auto_download?prefer_extended=true")
+        # Call auto_download with sync=true to get detailed results in tests
+        r = await ac.post(f"/api/v1/playlists/{pl_id}/auto_download?prefer_extended=true&sync=true")
         assert r.status_code == 200
         summary = r.json()
         assert summary["playlist_id"] == pl_id

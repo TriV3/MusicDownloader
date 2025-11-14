@@ -113,30 +113,64 @@ export const DashboardPage: React.FC = () => {
                 </div>
                 <div className="pl-actions">
                   {s.playlist_id && (
-                    <button
-                      onClick={async () => {
-                        const key = String(s.playlist_id)
-                        setBusy(prev => ({ ...prev, [key]: 'Starting…' }))
-                        try {
-                          const r = await fetch(`/api/v1/playlists/${s.playlist_id}/auto_download`, { method: 'POST' })
-                          if (!r.ok) throw new Error(await r.text())
-                          const summary = await r.json()
-                          setBusy(prev => ({ ...prev, [key]: `Queued ${summary.enqueued} / ${summary.total_tracks}` }))
-                          // force a refresh now that jobs are queued
-                          fetch('/api/v1/playlists/stats?selected_only=true').then(r => r.json()).then((d: PlaylistStat[]) => setStats(d)).catch(() => {})
-                          // enable short burst polling (2s) for ~20s
-                          burstRef.current = Date.now() + 20000
-                        } catch (e: any) {
-                          setBusy(prev => ({ ...prev, [key]: `Error: ${String(e?.message || e)}` }))
-                        } finally {
-                          setTimeout(() => setBusy(prev => ({ ...prev, [key]: null })), 2500)
-                        }
-                      }}
-                      className="pl-btn"
-                    >Download</button>
+                    <>
+                      <button
+                        onClick={async () => {
+                          const key = String(s.playlist_id)
+                          setBusy(prev => ({ ...prev, [key]: 'Starting…' }))
+                          try {
+                            const r = await fetch(`/api/v1/playlists/${s.playlist_id}/auto_download`, { method: 'POST' })
+                            if (!r.ok) throw new Error(await r.text())
+                            const summary = await r.json()
+                            // API now returns immediately with status "processing"
+                            const msg = summary.status === 'processing' 
+                              ? `Processing ${summary.total_tracks} tracks in background…`
+                              : `Queued ${summary.enqueued || 0} / ${summary.total_tracks || 0}`
+                            setBusy(prev => ({ ...prev, [key]: msg }))
+                            // force a refresh now that jobs are queued
+                            fetch('/api/v1/playlists/stats?selected_only=true').then(r => r.json()).then((d: PlaylistStat[]) => setStats(d)).catch(() => {})
+                            // enable short burst polling (2s) for ~20s
+                            burstRef.current = Date.now() + 20000
+                          } catch (e: any) {
+                            setBusy(prev => ({ ...prev, [key]: `Error: ${String(e?.message || e)}` }))
+                          } finally {
+                            setTimeout(() => setBusy(prev => ({ ...prev, [key]: null })), 2500)
+                          }
+                        }}
+                        className="pl-btn"
+                        disabled={s.not_downloaded_tracks === 0}
+                        title={s.not_downloaded_tracks === 0 ? 'No pending tracks to download' : 'Download all pending tracks'}
+                      >Download</button>
+                      
+                      {typeof s.searched_not_found === 'number' && s.searched_not_found > 0 && (
+                        <button
+                          onClick={async () => {
+                            const key = `retry-${s.playlist_id}`
+                            setBusy(prev => ({ ...prev, [key]: 'Retrying…' }))
+                            try {
+                              const r = await fetch(`/api/v1/playlists/${s.playlist_id}/retry_not_found`, { method: 'POST' })
+                              if (!r.ok) throw new Error(await r.text())
+                              const summary = await r.json()
+                              const msg = summary.status === 'processing'
+                                ? `Retrying ${summary.retry_tracks} tracks in background…`
+                                : `Retried ${summary.retry_tracks || 0}`
+                              setBusy(prev => ({ ...prev, [key]: msg }))
+                              fetch('/api/v1/playlists/stats?selected_only=true').then(r => r.json()).then((d: PlaylistStat[]) => setStats(d)).catch(() => {})
+                              burstRef.current = Date.now() + 20000
+                            } catch (e: any) {
+                              setBusy(prev => ({ ...prev, [key]: `Error: ${String(e?.message || e)}` }))
+                            } finally {
+                              setTimeout(() => setBusy(prev => ({ ...prev, [key]: null })), 2500)
+                            }
+                          }}
+                          className="pl-btn"
+                          title={`Retry searching for ${s.searched_not_found} not found tracks`}
+                        >Retry Not Found</button>
+                      )}
+                    </>
                   )}
-                  {s.playlist_id && busy[String(s.playlist_id)] && (
-                    <span className="pl-note">{busy[String(s.playlist_id)]}</span>
+                  {s.playlist_id && (busy[String(s.playlist_id)] || busy[`retry-${s.playlist_id}`]) && (
+                    <span className="pl-note">{busy[String(s.playlist_id)] || busy[`retry-${s.playlist_id}`]}</span>
                   )}
                 </div>
               </div>

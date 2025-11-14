@@ -254,6 +254,18 @@ async def on_startup():
         except Exception:
             pass
 
+        # Auto-migrate library_files.actual_duration_ms column
+        try:  # pragma: no cover
+            result = await conn.exec_driver_sql("PRAGMA table_info(library_files)")
+            lfcols = [row[1] for row in result.fetchall()]
+            if "actual_duration_ms" not in lfcols:
+                try:
+                    await conn.exec_driver_sql("ALTER TABLE library_files ADD COLUMN actual_duration_ms INTEGER")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         # (Removed: audio feature columns auto-migration no longer needed)
 
     # Start download worker(s) unless disabled (e.g., in tests)

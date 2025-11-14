@@ -121,11 +121,11 @@ async def list_tracks_with_playlist_info(
     track_id: Optional[int] = Query(None, description="Filter by specific track id"),
     sort_by: Optional[str] = Query("updated_at", description="Sort by: updated_at, release_date, playlist_added_at"),
     sort_order: Optional[str] = Query("desc", description="Sort order: asc or desc"),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=10000),  # Increased limit to support larger libraries
 ):
     """Return tracks enriched with playlist information for enhanced sorting and display."""
     from sqlalchemy import func, case
-    from ...db.models.models import Playlist, Download, DownloadStatus  # type: ignore
+    from ...db.models.models import Playlist, Download, DownloadStatus, LibraryFile  # type: ignore
     
     # Base query with playlist join and download info
     stmt = (
@@ -134,11 +134,13 @@ async def list_tracks_with_playlist_info(
             PlaylistTrack.added_at.label("playlist_added_at"),
             PlaylistTrack.position.label("playlist_position"),
             Playlist.name.label("playlist_name"),
-            Download.finished_at.label("downloaded_at")
+            Download.finished_at.label("downloaded_at"),
+            LibraryFile.actual_duration_ms.label("actual_duration_ms")
         )
         .outerjoin(PlaylistTrack, PlaylistTrack.track_id == Track.id)
         .outerjoin(Playlist, Playlist.id == PlaylistTrack.playlist_id)
         .outerjoin(Download, (Download.track_id == Track.id) & (Download.status == DownloadStatus.done))
+        .outerjoin(LibraryFile, LibraryFile.track_id == Track.id)
     )
 
     # Filter by search query
@@ -195,6 +197,7 @@ async def list_tracks_with_playlist_info(
                 "artists": track.artists,
                 "album": track.album,
                 "duration_ms": track.duration_ms,
+                "actual_duration_ms": row.actual_duration_ms,  # Actual duration from file
                 "isrc": track.isrc,
                 "year": track.year,
                 "explicit": track.explicit,
@@ -321,6 +324,50 @@ async def get_track_identities(track_id: int, session: AsyncSession = Depends(ge
         }
         for identity in identities
     ]
+
+
+@router.get("/{track_id}/search_info")
+async def get_track_search_info(track_id: int, session: AsyncSession = Depends(get_session)):
+    """Get search query information for a track"""
+    track = await session.get(Track, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    
+    # Build the search queries that would be used
+    try:
+        from ...utils.youtube_search import _build_search_queries  # type: ignore
+    except Exception:
+        from utils.youtube_search import _build_search_queries  # type: ignore
+    
+    queries = _build_search_queries(track.artists, track.title, prefer_extended=False)
+    queries_extended = _build_search_queries(track.artists, track.title, prefer_extended=True)
+    
+    # Get search attempts from database
+    try:
+        from ...db.models.models import SearchAttempt  # type: ignore
+    except Exception:
+        from db.models.models import SearchAttempt  # type: ignore
+    
+    stmt = select(SearchAttempt).where(SearchAttempt.track_id == track_id).order_by(SearchAttempt.attempted_at.desc())
+    result = await session.execute(stmt)
+    attempts = result.scalars().all()
+    
+    return {
+        "queries_normal": queries,
+        "queries_extended": queries_extended,
+        "primary_query": queries[0] if queries else f"{track.artists} - {track.title}",
+        "search_attempts": [
+            {
+                "id": attempt.id,
+                "provider": attempt.provider.value,
+                "attempted_at": attempt.attempted_at.isoformat(),
+                "results_count": attempt.results_count,
+                "prefer_extended": attempt.prefer_extended,
+                "error_message": attempt.error_message,
+            }
+            for attempt in attempts
+        ]
+    }
 
 
 @router.put("/{track_id}", response_model=TrackRead)
