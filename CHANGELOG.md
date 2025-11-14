@@ -6,7 +6,7 @@ Versioning scheme:
 - Versions follow semantic versioning for stable releases (1.0.0+) and `0.<phase>.<minor>` for development milestones.
 - Each tagged version represents the completion of a documented milestone.
 
-## Unreleased
+## 1.1.0 — Manual YouTube Search & User Preferences (November 14, 2025)
 
 ### ✨ New Features
 
