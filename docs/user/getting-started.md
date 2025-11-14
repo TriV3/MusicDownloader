@@ -70,6 +70,13 @@ Downloads
 - You can enqueue a download without typing numeric IDs: start typing a track title or artist in the search box and pick the result; the form will auto-fill the Track ID.
 - Optionally, you can provide a specific Candidate ID if you want to override the chosen one.
 
+Manual YouTube Search
+- If the automatic YouTube search doesn't find the correct video for a track, you can manually search and download it from the Track Details page.
+- Click the "🔍 Open YouTube Search" button to open YouTube with the search query in a new tab.
+- Find the correct video on YouTube and copy its URL (e.g., `https://www.youtube.com/watch?v=...`).
+- Paste the URL into the input field and click "⬇ Download" to add it as a candidate and start the download.
+- The video will be added to the candidates list with its calculated score, and the download will be automatically enqueued.
+
 Importing tracks (JSON)
 - Go to the Import page from the top navigation to upload a JSON file of tracks. Use the Dry Run to preview duplicates and validation errors before confirming.
 - Newly imported tracks that do not belong to any existing playlist are automatically added to a manual playlist named "Others". This playlist is set as selected so it appears in the playlist filter on the Tracks page, allowing you to quickly filter for those manual imports.

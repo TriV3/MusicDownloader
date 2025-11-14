@@ -404,3 +404,84 @@
 .attempts-table tr:hover {
   background: #f8f9fa;
 }
+
+/* Manual YouTube Download */
+.manual-youtube-download {
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+}
+
+.manual-youtube-download h2 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 1.25rem;
+  color: #333;
+}
+
+.manual-download-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.manual-url-input {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.manual-url-input input {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.manual-url-input input:disabled {
+  background: #e9ecef;
+  cursor: not-allowed;
+}
+
+.download-button {
+  padding: 0.5rem 1rem;
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.download-button:hover:not(:disabled) {
+  background: #218838;
+}
+
+.download-button:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+}
+
+.manual-download-success {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 4px;
+  color: #155724;
+}
+
+.manual-download-error {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 4px;
+  color: #721c24;
+}
+

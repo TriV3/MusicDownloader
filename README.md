@@ -336,6 +336,11 @@ old/               # Legacy code kept for reference
 	- `limit` (optional int) overrides search limit.
 	Scoring blends text token overlap, duration proximity, extended mix bonus, and small penalties for missing tokens.
  	When prefer_extended is enabled, explicit "Original Mix" is also treated as an extended variant.
+- **Manual YouTube Search & Download**: If the automatic search doesn't find the correct video:
+	- View search queries used via `GET /api/v1/tracks/{track_id}/search_info` (primary query, variants, search history)
+	- Use `POST /api/v1/tracks/{track_id}/youtube/manual_download?youtube_url={url}` to add a manually-found video
+	- The endpoint extracts video metadata (title, channel, duration), calculates the score, creates a SearchCandidate (marked as chosen), and enqueues a download
+	- Useful when tracks have unusual titles or when automatic search returns poor matches
 - Single-source name/version (`backend/app/app_meta.py`) exposed via `/api/v1/info`.
 
 ### Cover images

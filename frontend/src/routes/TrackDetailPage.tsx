@@ -79,6 +79,12 @@ export const TrackDetailPage: React.FC = () => {
   const [youtubeSearching, setYoutubeSearching] = React.useState(false)
   const [hideWeakResults, setHideWeakResults] = React.useState(true)
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set())
+  
+  // Manual YouTube download state
+  const [manualYoutubeUrl, setManualYoutubeUrl] = React.useState('')
+  const [manualDownloading, setManualDownloading] = React.useState(false)
+  const [manualDownloadSuccess, setManualDownloadSuccess] = React.useState<string | null>(null)
+  const [manualDownloadError, setManualDownloadError] = React.useState<string | null>(null)
 
   // Utility functions
   const formatDuration = (ms: number) => {
@@ -249,6 +255,51 @@ export const TrackDetailPage: React.FC = () => {
       setYoutubeSearching(false)
     }
   }, [trackId, youtubeSearching])
+
+  const handleManualDownload = React.useCallback(async () => {
+    if (!trackId || !manualYoutubeUrl.trim()) return
+    
+    setManualDownloading(true)
+    setManualDownloadSuccess(null)
+    setManualDownloadError(null)
+    
+    try {
+      const response = await fetch(`/api/v1/tracks/${trackId}/youtube/manual_download?youtube_url=${encodeURIComponent(manualYoutubeUrl)}`, {
+        method: 'POST'
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'Failed to download')
+      }
+      
+      const result = await response.json()
+      setManualDownloadSuccess(`Successfully added: ${result.title} by ${result.channel}`)
+      setManualYoutubeUrl('')
+      
+      // Reload candidates to show the new one
+      const candidatesResponse = await fetch(`/api/v1/candidates/enriched?track_id=${trackId}`)
+      if (candidatesResponse.ok) {
+        const candidatesData = await candidatesResponse.json()
+        setCandidates(candidatesData)
+      }
+      
+      // Notify other components
+      window.dispatchEvent(new Event('candidates:changed'))
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred'
+      setManualDownloadError(errorMessage)
+    } finally {
+      setManualDownloading(false)
+    }
+  }, [trackId, manualYoutubeUrl])
+
+  const openYouTubeSearch = React.useCallback(() => {
+    if (searchInfo?.primary_query) {
+      const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchInfo.primary_query)}`
+      window.open(searchUrl, '_blank', 'noopener,noreferrer')
+    }
+  }, [searchInfo])
 
   React.useEffect(() => {
     const loadTrackDetails = async () => {
@@ -519,6 +570,49 @@ export const TrackDetailPage: React.FC = () => {
         <p className="search-info">
           This will search YouTube for candidates matching this track and add them to the candidates list below.
         </p>
+      </section>
+
+      {/* Manual YouTube Download */}
+      <section className="manual-youtube-download">
+        <h2>Manual YouTube Download</h2>
+        <p className="search-info">
+          If the automatic search doesn't find the right video, you can manually search YouTube and provide the video URL.
+        </p>
+        <div className="manual-download-controls">
+          <button 
+            onClick={openYouTubeSearch}
+            disabled={!searchInfo?.primary_query}
+            className="search-button"
+          >
+            🔍 Open YouTube Search
+          </button>
+          <div className="manual-url-input">
+            <input
+              type="text"
+              value={manualYoutubeUrl}
+              onChange={(e) => setManualYoutubeUrl(e.target.value)}
+              placeholder="Paste YouTube video URL here (e.g., https://www.youtube.com/watch?v=...)"
+              disabled={manualDownloading}
+            />
+            <button 
+              onClick={handleManualDownload}
+              disabled={manualDownloading || !manualYoutubeUrl.trim()}
+              className="download-button"
+            >
+              {manualDownloading ? 'Adding...' : '⬇ Download'}
+            </button>
+          </div>
+        </div>
+        {manualDownloadSuccess && (
+          <div className="manual-download-success">
+            ✅ {manualDownloadSuccess}
+          </div>
+        )}
+        {manualDownloadError && (
+          <div className="manual-download-error">
+            ❌ {manualDownloadError}
+          </div>
+        )}
       </section>
 
       {/* Search Candidates */}

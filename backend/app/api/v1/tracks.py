@@ -12,6 +12,7 @@ try:
         SourceProvider,
         SearchCandidate,
         Download,
+        DownloadProvider,
         PlaylistTrack,
         LibraryFile,
     )  # type: ignore
@@ -30,6 +31,7 @@ except Exception:  # pragma: no cover
         SourceProvider,
         SearchCandidate,
         Download,
+        DownloadProvider,
         PlaylistTrack,
         LibraryFile,
     )  # type: ignore
@@ -575,3 +577,163 @@ async def refresh_track_cover(track_id: int, session: AsyncSession = Depends(get
         track.cover_url = new_cover
         await session.flush()
     return track
+
+
+@router.post("/{track_id}/youtube/manual_download")
+async def manual_youtube_download(
+    track_id: int,
+    youtube_url: str = Query(..., description="YouTube video URL (e.g., https://www.youtube.com/watch?v=...)"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Download a track from a manually provided YouTube URL.
+    
+    This creates a SearchCandidate, marks it as chosen, and enqueues a download.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        track = await session.get(Track, track_id)
+        if not track:
+            raise HTTPException(status_code=404, detail="Track not found")
+        
+        # Extract video ID from URL
+        import re
+        video_id_match = re.search(r'(?:v=|youtu\.be/|/embed/|/v/)([a-zA-Z0-9_-]{11})', youtube_url)
+        if not video_id_match:
+            raise HTTPException(status_code=400, detail="Invalid YouTube URL")
+        
+        video_id = video_id_match.group(1)
+        logger.info(f"Extracted video_id: {video_id} from URL: {youtube_url}")
+        
+        # Get video metadata using yt-dlp
+        try:
+            import subprocess
+            import json
+            import os
+            
+            # Get extractor args to avoid SABR issues (same as downloader)
+            extractor_args = os.environ.get("DOWNLOAD_YTDLP_EXTRACTOR_ARGS")
+            if not extractor_args or extractor_args.strip() == "":
+                extractor_args = "youtube:player_client=android"
+            
+            cmd = [
+                "yt-dlp",
+                "--dump-json",
+                "--no-playlist",
+            ]
+            
+            # Add extractor args if not disabled
+            if extractor_args and extractor_args.lower() not in {"none", "off", "false", "0"}:
+                cmd.extend(["--extractor-args", extractor_args])
+            
+            cmd.append(f"https://www.youtube.com/watch?v={video_id}")
+            
+            logger.info(f"Running yt-dlp command: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.error(f"yt-dlp failed: {result.stderr}")
+                raise HTTPException(status_code=400, detail="Failed to fetch video metadata")
+            
+            video_data = json.loads(result.stdout)
+            title = video_data.get('title', 'Unknown')
+            channel = video_data.get('channel') or video_data.get('uploader', 'Unknown')
+            duration_sec = video_data.get('duration', 0)
+            logger.info(f"Video metadata: title={title}, channel={channel}, duration={duration_sec}")
+            
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=408, detail="Timeout while fetching video metadata")
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error parsing video metadata: {str(e)}")
+        except Exception as e:
+            logger.error(f"Metadata fetch error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error fetching video metadata: {str(e)}")
+        
+        # Calculate score (simple version for manual entry)
+        try:
+            from ...utils.youtube_search import get_score_components  # type: ignore
+        except Exception:
+            from utils.youtube_search import get_score_components  # type: ignore
+        
+        logger.info(f"Calculating score for track: {track.artists} - {track.title}")
+        score_components = get_score_components(
+            query_artists=track.artists,
+            query_title=track.title,
+            track_duration_ms=track.duration_ms,
+            result_duration_sec=duration_sec,
+            result_title=title,
+            result_channel=channel,
+        )
+        # score_components is a tuple: (artist, title, extended, duration, penalty, total)
+        total_score = score_components[5]
+        logger.info(f"Calculated score: {total_score}")
+        
+        # Check if candidate already exists
+        existing_result = await session.execute(
+            select(SearchCandidate).where(
+                SearchCandidate.track_id == track_id,
+                SearchCandidate.external_id == video_id
+            )
+        )
+        existing = existing_result.scalars().first()
+        
+        if existing:
+            # Update and mark as chosen
+            existing.chosen = True
+            existing.score = total_score
+            candidate = existing
+            logger.info(f"Updated existing candidate {existing.id}")
+        else:
+            # Create new candidate
+            candidate = SearchCandidate(
+                track_id=track_id,
+                provider=SearchProvider.youtube,
+                external_id=video_id,
+                url=f"https://www.youtube.com/watch?v={video_id}",
+                title=title,
+                channel=channel,
+                score=total_score,
+                duration_sec=duration_sec,
+                chosen=True,
+            )
+            session.add(candidate)
+            logger.info(f"Created new candidate for track {track_id}")
+        
+        await session.flush()
+        
+        # Use the existing enqueue_download logic
+        try:
+            from ..v1.downloads import enqueue_download  # type: ignore
+        except Exception:
+            from api.v1.downloads import enqueue_download  # type: ignore
+        
+        # Enqueue the download using the existing endpoint logic
+        download = await enqueue_download(
+            track_id=track_id,
+            candidate_id=candidate.id,
+            provider=DownloadProvider.yt_dlp,
+            force=False,
+            session=session,
+        )
+        
+        logger.info(f"Manual download completed successfully for track {track_id}, download_id={download.id}")
+        
+        return {
+            "ok": True,
+            "message": "Manual download enqueued successfully",
+            "candidate_id": candidate.id,
+            "download_id": download.id,
+            "video_id": video_id,
+            "title": title,
+            "channel": channel,
+            "duration_sec": duration_sec,
+            "score": total_score,
+        }
+    
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.exception(f"Unexpected error in manual_youtube_download: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

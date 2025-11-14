@@ -6,6 +6,57 @@ Versioning scheme:
 - Versions follow semantic versioning for stable releases (1.0.0+) and `0.<phase>.<minor>` for development milestones.
 - Each tagged version represents the completion of a documented milestone.
 
+## Unreleased
+
+### ✨ New Features
+
+#### Manual YouTube Search and Download
+- **Manual Video Selection**: Added ability to manually search YouTube and download specific videos when automatic search fails
+  - New "Manual YouTube Download" section on Track Details page
+  - "Open YouTube Search" button opens YouTube with the track's search query
+  - URL input field allows pasting any YouTube video URL
+  - Backend endpoint `POST /api/v1/tracks/{track_id}/youtube/manual_download?youtube_url={url}` creates a SearchCandidate and enqueues download
+  - Supports all YouTube URL formats (watch, youtu.be, embed, v/)
+  - Automatically extracts video metadata (title, channel, duration) using yt-dlp
+  - Calculates score and marks candidate as chosen
+  - Success/error feedback with video details display
+
+#### YouTube Search Query Transparency
+- **Search Info Display**: Track Details page now shows the exact YouTube search queries used
+  - Displays primary search query and all query variants (normal and extended)
+  - Shows search attempt history with timestamps and result counts
+  - Helps users understand what searches were performed and why results may vary
+
+### 🔧 Improvements
+
+#### Improved YouTube Search Query for Multiple Artists
+- **Better Collaboration Matching**: YouTube search queries now prioritize all artists instead of just the primary artist
+  - Primary query now includes ALL artists (e.g., "Joshwa, Enzo is Burning Night Moves" instead of "Joshwa Night Moves")
+  - New query priority order:
+    1. "Artists Title" (all artists, space-separated)
+    2. "Artists - Title" (all artists with hyphen)
+    3. "PrimaryArtist Title" (fallback to primary only)
+    4. "PrimaryArtist - Title" (fallback with hyphen)
+  - Improves search accuracy for tracks with multiple artists or collaborations
+  - Fallback queries ensure backward compatibility with single-artist tracks
+
+### 🐛 Bug Fixes
+
+#### Fixed Manual YouTube Download Crash
+- **Score Calculation**: Fixed a crash (500 Internal Server Error) when attempting manual YouTube downloads
+  - Corrected usage of `get_score_components()` which returns a tuple, not a dictionary
+  - Added missing `await session.commit()` to persist changes to database
+  - Manual downloads now work correctly and create candidates with proper scores
+
+### 🔧 Technical Details
+- Added `GET /api/v1/tracks/{track_id}/search_info` endpoint returning queries and search history
+- Added `POST /api/v1/tracks/{track_id}/youtube/manual_download` endpoint with URL validation, metadata extraction, and download enqueueing
+- Updated `_build_search_queries()` in `youtube_search.py` to prioritize all artists in search queries
+- Fixed `manual_youtube_download()` to correctly unpack score tuple from `get_score_components()`
+- Updated frontend with manual search UI components and styling
+- Added comprehensive test coverage in `backend/tests/test_manual_youtube_download.py` and updated `test_youtube_query_variants.py`
+- Updated documentation in `README.md` and `docs/user/getting-started.md`
+
 ## 1.0.3 — Mobile Menu Fix (November 11, 2025)
 
 ### 🐛 Bug Fixes

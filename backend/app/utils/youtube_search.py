@@ -188,10 +188,10 @@ def _build_search_queries(artists: str, title: str, prefer_extended: bool) -> Li
     """Build YouTube search queries.
 
     Strategy (in priority order):
-    1) "PrimaryArtist Title" (space variant) – compact and often matches official uploads.
-    2) "Artists Title" (space variant) when multiple artists.
-    3) "Artists - Title" (hyphen classic pattern).
-    4) "PrimaryArtist - Title" (hyphen with primary only) when multiple artists.
+    1) "Artists Title" (space variant) – includes all artists for better matching of collaborations.
+    2) "Artists - Title" (hyphen classic pattern) – standard format with all artists.
+    3) "PrimaryArtist Title" (space variant) – fallback with primary artist only.
+    4) "PrimaryArtist - Title" (hyphen with primary only) – additional fallback.
     5) If a Remix editor is detected in the title (e.g., " - XYZ Remix" or "(XYZ Remix)"), also add
        a simplified title+remixer query like "Title XYZ" and a generic "Title remix".
     6) If prefer_extended and title does not already indicate extended, add explicit extended/original mix suffix
@@ -203,27 +203,25 @@ def _build_search_queries(artists: str, title: str, prefer_extended: bool) -> Li
     artists_list = _parse_artists(artists)
 
     queries: List[str] = []
-    # 1) Primary artist + title (space)
-    q_space_primary = f"{primary} {norm.clean_title}".strip()
-    if q_space_primary:
-        queries.append(q_space_primary)
+    # 1) All artists + title (space) - prioritize full artist list
+    q_space_all = f"{artists} {norm.clean_title}".strip()
+    if q_space_all:
+        queries.append(q_space_all)
 
-    # 2) All artists + title (space) when multiple
-    if len(artists_list) > 1:
-        q_space_all = f"{artists} {norm.clean_title}".strip()
-        if q_space_all and q_space_all.lower() not in {q.lower() for q in queries}:
-            queries.append(q_space_all)
-
-    # 3) All artists - title (hyphen)
+    # 2) All artists - title (hyphen) - standard format
     raw_query = f"{artists} - {title}".strip()
     if raw_query and raw_query.lower() not in {q.lower() for q in queries}:
         queries.append(raw_query)
 
-    # 4) Primary - title (hyphen) when multiple artists
-    if len(artists_list) > 1:
-        q_primary_hyphen = f"{primary} - {title}".strip()
-        if q_primary_hyphen and q_primary_hyphen.lower() not in {q.lower() for q in queries}:
-            queries.append(q_primary_hyphen)
+    # 3) Primary artist + title (space) - fallback for single or primary-focused results
+    q_space_primary = f"{primary} {norm.clean_title}".strip()
+    if q_space_primary and q_space_primary.lower() not in {q.lower() for q in queries}:
+        queries.append(q_space_primary)
+
+    # 4) Primary - title (hyphen) - additional fallback
+    q_primary_hyphen = f"{primary} - {title}".strip()
+    if q_primary_hyphen and q_primary_hyphen.lower() not in {q.lower() for q in queries}:
+        queries.append(q_primary_hyphen)
 
     # 5) Remix editor simplified variant: try to extract remixer and add "Title Remixer" + "Title remix"
     title_l = (title or "").lower()
