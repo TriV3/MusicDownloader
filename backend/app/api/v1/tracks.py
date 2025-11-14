@@ -641,6 +641,9 @@ async def manual_youtube_download(
             duration_sec = video_data.get('duration', 0)
             logger.info(f"Video metadata: title={title}, channel={channel}, duration={duration_sec}")
             
+        except HTTPException:
+            # Re-raise HTTP exceptions as-is (don't catch them in the generic handler)
+            raise
         except subprocess.TimeoutExpired:
             raise HTTPException(status_code=408, detail="Timeout while fetching video metadata")
         except json.JSONDecodeError as e:

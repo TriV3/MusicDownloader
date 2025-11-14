@@ -58,7 +58,7 @@ async def test_manual_youtube_download_success():
             assert r.status_code == 200
             data = r.json()
             assert data["ok"] is True
-            assert "successfully added" in data["message"].lower()
+            assert "enqueued successfully" in data["message"].lower()
             assert data["video_id"] == "dQw4w9WgXcQ"
             assert data["title"] == "Test Track (Official Video)"
             assert data["channel"] == "Test Artist - Topic"
@@ -159,11 +159,12 @@ async def test_manual_youtube_download_metadata_fetch_failure():
         mock_result.stderr = "ERROR: Video unavailable"
         
         with patch('subprocess.run', return_value=mock_result):
+            # Use a valid YouTube URL format but yt-dlp will fail
             r = await ac.post(
                 f"/api/v1/tracks/{track_id}/youtube/manual_download",
-                params={"youtube_url": "https://www.youtube.com/watch?v=invalid123"}
+                params={"youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}
             )
             
             assert r.status_code == 400
             data = r.json()
-            assert "failed to fetch" in data["detail"].lower()
+            assert "failed to fetch video metadata" in data["detail"].lower()
