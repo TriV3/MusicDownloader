@@ -2,6 +2,7 @@ import React from 'react'
 import { Link } from 'react-router-dom'
 import { useAudioPlayer } from '../contexts/AudioPlayerContext'
 import type { NormalizationPreview } from './NormalizationPlayground'
+import { userPreferences } from '../services/userPreferences'
 import './AudioPlayer.css'
 
 export type PlaylistInfo = {
@@ -63,16 +64,16 @@ export const TrackManager: React.FC = () => {
   const [filterCreatedFrom, setFilterCreatedFrom] = React.useState('') // date input (YYYY-MM-DD)
   const [filterCreatedTo, setFilterCreatedTo] = React.useState('')
 
-  // Column visibility state
-  const [showIdColumn, setShowIdColumn] = React.useState(false)
-  const [showPosColumn, setShowPosColumn] = React.useState(false)
-  const [showDownloadedColumn, setShowDownloadedColumn] = React.useState(false)
-  const [showGenreColumn, setShowGenreColumn] = React.useState(false)
-  const [showBpmColumn, setShowBpmColumn] = React.useState(false)
-  const [showDurationColumn, setShowDurationColumn] = React.useState(false)
-  const [showSpotifyAddedColumn, setShowSpotifyAddedColumn] = React.useState(false)
-  const [showPlaylistAddedColumn, setShowPlaylistAddedColumn] = React.useState(false)
-  const [showPlaylistsColumn, setShowPlaylistsColumn] = React.useState(false)
+  // Column visibility state - initialize from localStorage
+  const [showIdColumn, setShowIdColumn] = React.useState(() => userPreferences.getTrackColumnsVisibility().showIdColumn)
+  const [showPosColumn, setShowPosColumn] = React.useState(() => userPreferences.getTrackColumnsVisibility().showPositionColumn)
+  const [showDownloadedColumn, setShowDownloadedColumn] = React.useState(() => userPreferences.getTrackColumnsVisibility().showDownloadedColumn)
+  const [showGenreColumn, setShowGenreColumn] = React.useState(() => userPreferences.getTrackColumnsVisibility().showGenreColumn)
+  const [showBpmColumn, setShowBpmColumn] = React.useState(() => userPreferences.getTrackColumnsVisibility().showBpmColumn)
+  const [showDurationColumn, setShowDurationColumn] = React.useState(() => userPreferences.getTrackColumnsVisibility().showDurationColumn)
+  const [showSpotifyAddedColumn, setShowSpotifyAddedColumn] = React.useState(() => userPreferences.getTrackColumnsVisibility().showSpotifyAddedColumn)
+  const [showPlaylistAddedColumn, setShowPlaylistAddedColumn] = React.useState(() => userPreferences.getTrackColumnsVisibility().showPlaylistAddedColumn)
+  const [showPlaylistsColumn, setShowPlaylistsColumn] = React.useState(() => userPreferences.getTrackColumnsVisibility().showPlaylistsColumn)
   const [showColumnMenu, setShowColumnMenu] = React.useState(false)
 
   // Sorting state
@@ -171,6 +172,21 @@ export const TrackManager: React.FC = () => {
 
   React.useEffect(() => { loadTracks() }, [loadTracks])
   React.useEffect(() => { loadPlaylists() }, [loadPlaylists])
+
+  // Save column visibility preferences whenever they change
+  React.useEffect(() => {
+    userPreferences.setTrackColumnsVisibility({
+      showIdColumn,
+      showPositionColumn: showPosColumn,
+      showDownloadedColumn,
+      showGenreColumn,
+      showBpmColumn,
+      showDurationColumn,
+      showSpotifyAddedColumn,
+      showPlaylistAddedColumn,
+      showPlaylistsColumn,
+    })
+  }, [showIdColumn, showPosColumn, showDownloadedColumn, showGenreColumn, showBpmColumn, showDurationColumn, showSpotifyAddedColumn, showPlaylistAddedColumn, showPlaylistsColumn])
 
   // Debug helper removed (window.debugLoadTracks) now that loading is stable.
 

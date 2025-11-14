@@ -17,7 +17,7 @@ Versioning scheme:
   - URL input field allows pasting any YouTube video URL
   - Backend endpoint `POST /api/v1/tracks/{track_id}/youtube/manual_download?youtube_url={url}` creates a SearchCandidate and enqueues download
   - Supports all YouTube URL formats (watch, youtu.be, embed, v/)
-  - Automatically extracts video metadata (title, channel, duration) using yt-dlp
+  - Automatically extracts video metadata (title, channel, duration) using yt-dlp with Android client to avoid SABR issues
   - Calculates score and marks candidate as chosen
   - Success/error feedback with video details display
 
@@ -26,6 +26,14 @@ Versioning scheme:
   - Displays primary search query and all query variants (normal and extended)
   - Shows search attempt history with timestamps and result counts
   - Helps users understand what searches were performed and why results may vary
+
+#### User Preferences Persistence
+- **Column Visibility Preferences**: Track table column visibility settings are now persisted in browser localStorage
+  - Visibility preferences for all 9 toggleable columns are automatically saved
+  - Preferences are restored when reopening the application
+  - Each change to column visibility is immediately saved
+  - Uses dedicated UserPreferencesService for centralized preference management
+  - Foundation for future preference persistence (sorting, filters, etc.)
 
 ### 🔧 Improvements
 
@@ -45,7 +53,10 @@ Versioning scheme:
 #### Fixed Manual YouTube Download Crash
 - **Score Calculation**: Fixed a crash (500 Internal Server Error) when attempting manual YouTube downloads
   - Corrected usage of `get_score_components()` which returns a tuple, not a dictionary
-  - Added missing `await session.commit()` to persist changes to database
+  - Added missing `DownloadProvider` import
+  - Refactored to use existing `enqueue_download()` function for consistency
+  - Added yt-dlp extractor args (`youtube:player_client=android`) to avoid SABR streaming issues
+  - Added comprehensive logging for debugging
   - Manual downloads now work correctly and create candidates with proper scores
 
 ### 🔧 Technical Details
@@ -53,6 +64,8 @@ Versioning scheme:
 - Added `POST /api/v1/tracks/{track_id}/youtube/manual_download` endpoint with URL validation, metadata extraction, and download enqueueing
 - Updated `_build_search_queries()` in `youtube_search.py` to prioritize all artists in search queries
 - Fixed `manual_youtube_download()` to correctly unpack score tuple from `get_score_components()`
+- Added `UserPreferencesService` in `frontend/src/services/userPreferences.ts` for localStorage management
+- TrackManager now loads and saves column visibility preferences on mount and on change
 - Updated frontend with manual search UI components and styling
 - Added comprehensive test coverage in `backend/tests/test_manual_youtube_download.py` and updated `test_youtube_query_variants.py`
 - Updated documentation in `README.md` and `docs/user/getting-started.md`
