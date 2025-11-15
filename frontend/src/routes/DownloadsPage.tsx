@@ -28,10 +28,6 @@ export const DownloadsPage: React.FC = () => {
   const [includeDownloaded, setIncludeDownloaded] = React.useState(false)
   const [ready, setReady] = React.useState<any[]>([])
   const [loadingReady, setLoadingReady] = React.useState(false)
-  const [libFiles, setLibFiles] = React.useState<any[]>([])
-  const [libLoading, setLibLoading] = React.useState(false)
-  const [libTrackId, setLibTrackId] = React.useState('')
-  const [nowPlayingId, setNowPlayingId] = React.useState<number | null>(null)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -110,91 +106,8 @@ export const DownloadsPage: React.FC = () => {
     alert('Cancel failed: ' + r.status)
   }
 
-  const loadLibrary = React.useCallback(async () => {
-    setLibLoading(true)
-    try {
-      const p = new URLSearchParams()
-      if (libTrackId) p.set('track_id', libTrackId)
-      const r = await fetch('/api/v1/library/files' + (p.toString() ? ('?' + p.toString()) : ''))
-      if (!r.ok) return
-      setLibFiles(await r.json())
-    } finally {
-      setLibLoading(false)
-    }
-  }, [libTrackId])
-
-  React.useEffect(() => {
-    loadLibrary()
-  }, [loadLibrary])
-
-  const deleteLibraryFile = async (id: number) => {
-    if (!confirm('Delete library file #' + id + ' from disk?')) return
-    const r = await fetch('/api/v1/library/files/' + id, { method: 'DELETE' })
-    if (r.ok) {
-      loadLibrary()
-      // Also refresh downloads, since file presence may affect UI logic elsewhere
-      load()
-    }
-  }
-
-  const resyncLibrary = async () => {
-    const r = await fetch('/api/v1/library/files/resync', { method: 'POST' })
-    if (r.ok) {
-      loadLibrary()
-      window.dispatchEvent(new CustomEvent('library:changed'))
-    } else {
-      const t = await r.text()
-      alert('Resync failed: ' + r.status + (t ? ('\n' + t) : ''))
-    }
-  }
-
-  const scanLibrary = async () => {
-    const r = await fetch('/api/v1/library/files/scan', { method: 'POST' })
-    if (r.ok) {
-      try {
-        const data = await r.json()
-        let msg = `Scan completed\nDirectory: ${data.directory}\nScanned: ${data.scanned}\nMatched: ${data.matched}\nAdded: ${data.added}\nUpdated: ${data.updated}\nSkipped: ${data.skipped}`
-        if (Array.isArray(data.skipped_files) && data.skipped_files.length > 0) {
-          const list = data.skipped_files.slice(0, 20).join('\n - ')
-          const more = data.skipped_files.length > 20 ? `\n(+ ${data.skipped_files.length - 20} more…)` : ''
-          msg += `\n\nSkipped files:\n - ${list}${more}`
-        }
-        alert(msg)
-      } catch {}
-      loadLibrary()
-      window.dispatchEvent(new CustomEvent('library:changed'))
-    } else {
-      const t = await r.text()
-      alert('Scan failed: ' + r.status + (t ? ('\n' + t) : ''))
-    }
-  }
-
-  const playFile = (id: number) => {
-    setNowPlayingId(id)
-    // The <audio> element will pick up the new src and play; autoplay may be blocked
-    // so user can click Play if needed.
-  }
-
-  const revealInExplorer = async (id: number) => {
-    const r = await fetch(`/api/v1/library/files/${id}/reveal`, { method: 'POST' })
-    if (!r.ok) {
-      const msg = await r.text()
-      alert('Reveal failed: ' + r.status + (msg ? ('\n' + msg) : ''))
-    }
-  }
-
-  const copyPath = async (filepath: string) => {
-    try {
-      await navigator.clipboard.writeText(filepath)
-      // optional: toast
-    } catch {
-      alert('Could not copy to clipboard. Here is the path:\n' + filepath)
-    }
-  }
-
-  const bottomPad = nowPlayingId ? 104 : 0
   return (
-    <div style={{ display: 'grid', gap: 12, paddingBottom: bottomPad }}>
+    <div style={{ display: 'grid', gap: 12 }}>
       <h2>Downloads</h2>
       <div style={{ border: '1px solid #ddd', padding: 10, borderRadius: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -308,74 +221,6 @@ export const DownloadsPage: React.FC = () => {
           </tbody>
         </table>
       </div>
-
-      <div style={{ borderTop: '1px solid #eee', marginTop: 16, paddingTop: 12 }}>
-        <h3 style={{ marginTop: 0 }}>Library Files</h3>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-          <input
-            placeholder='Filter by Track ID'
-            value={libTrackId}
-            onChange={e => setLibTrackId(e.target.value.replace(/[^0-9]/g, ''))}
-            style={{ width: 160 }}
-          />
-          <button onClick={loadLibrary} disabled={libLoading}>{libLoading ? 'Loading…' : 'Refresh'}</button>
-          <button onClick={resyncLibrary}>Resync</button>
-          <button onClick={scanLibrary}>Scan folder</button>
-        </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ textAlign: 'left' }}>
-              <th>ID</th>
-              <th>Track ID</th>
-              <th>File</th>
-              <th>Size</th>
-              <th>Modified</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {libFiles.map((f: any) => (
-              <tr key={f.id}>
-                <td>{f.id}</td>
-                <td>{f.track_id}</td>
-                <td>
-                  <div style={{ maxWidth: 480, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.filepath}>
-                    {f.filepath}
-                  </div>
-                </td>
-                <td>{typeof f.file_size === 'number' ? (f.file_size > 1024 * 1024 ? (f.file_size / (1024*1024)).toFixed(2) + ' MB' : (f.file_size / 1024).toFixed(1) + ' KB') : '-'}</td>
-                <td>{f.file_mtime ? new Date(f.file_mtime).toLocaleString() : '-'}</td>
-                <td style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => playFile(f.id)}>Play</button>
-                  <a href={`/api/v1/library/files/${f.id}/download`} target="_blank" rel="noreferrer">Download</a>
-                  <button onClick={() => revealInExplorer(f.id)}>Reveal</button>
-                  <button onClick={() => copyPath(f.filepath)}>Copy path</button>
-                  <button onClick={() => deleteLibraryFile(f.id)}>Delete</button>
-                </td>
-              </tr>
-            ))}
-            {libFiles.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 8 }}>No files</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      {/* Now Playing bar (only when playing) */}
-      {nowPlayingId != null && (
-        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, background: '#111', color: '#fff', padding: 8, zIndex: 50, boxShadow: '0 -2px 8px rgba(0,0,0,0.3)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>
-              {`Now Playing • File #${nowPlayingId}`}
-            </div>
-            <button onClick={() => setNowPlayingId(null)} style={{ fontSize: 12 }}>Hide</button>
-          </div>
-          <audio
-            key={nowPlayingId}
-            controls
-            style={{ width: '100%' }}
-            src={`/api/v1/library/files/${nowPlayingId}/stream`}
-            preload="metadata"
-          />
-        </div>
-      )}
     </div>
   )
 }

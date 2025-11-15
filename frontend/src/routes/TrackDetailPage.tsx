@@ -75,6 +75,9 @@ export const TrackDetailPage: React.FC = () => {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   
+  // Library file state
+  const [libraryFile, setLibraryFile] = React.useState<any | null>(null)
+  
   // YouTube search state
   const [youtubeSearching, setYoutubeSearching] = React.useState(false)
   const [hideWeakResults, setHideWeakResults] = React.useState(true)
@@ -301,6 +304,39 @@ export const TrackDetailPage: React.FC = () => {
     }
   }, [searchInfo])
 
+  // Library file actions
+  const revealInExplorer = async () => {
+    if (!libraryFile) return
+    const r = await fetch(`/api/v1/library/files/${libraryFile.id}/reveal`, { method: 'POST' })
+    if (!r.ok) {
+      const msg = await r.text()
+      alert('Reveal failed: ' + r.status + (msg ? ('\n' + msg) : ''))
+    }
+  }
+
+  const copyPath = async () => {
+    if (!libraryFile) return
+    try {
+      await navigator.clipboard.writeText(libraryFile.filepath)
+      alert('Path copied to clipboard!')
+    } catch {
+      alert('Could not copy to clipboard. Here is the path:\n' + libraryFile.filepath)
+    }
+  }
+
+  const deleteLibraryFile = async () => {
+    if (!libraryFile || !trackId) return
+    if (!confirm('Delete this file from disk? This action cannot be undone.')) return
+    const r = await fetch(`/api/v1/library/files/${libraryFile.id}`, { method: 'DELETE' })
+    if (r.ok) {
+      setLibraryFile(null)
+      window.dispatchEvent(new CustomEvent('library:changed'))
+      alert('File deleted successfully')
+    } else {
+      alert('Failed to delete file')
+    }
+  }
+
   React.useEffect(() => {
     const loadTrackDetails = async () => {
       if (!trackId) return
@@ -376,6 +412,19 @@ export const TrackDetailPage: React.FC = () => {
         } else {
           setCandidates([])
         }
+        
+        // Load library file if exists
+        const libraryResponse = await fetch(`/api/v1/library/files?track_id=${trackId}`)
+        if (libraryResponse.ok) {
+          const libraryData = await libraryResponse.json()
+          if (libraryData.length > 0) {
+            setLibraryFile(libraryData[0])
+          } else {
+            setLibraryFile(null)
+          }
+        } else {
+          setLibraryFile(null)
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error')
       } finally {
@@ -448,6 +497,35 @@ export const TrackDetailPage: React.FC = () => {
           </div>
         )}
       </section>
+
+      {/* Library File */}
+      {libraryFile && (
+        <section className="library-file-section">
+          <h2>Downloaded File</h2>
+          <div className="library-file-info">
+            <div className="file-details">
+              <p><strong>File:</strong> {libraryFile.filepath}</p>
+              {libraryFile.file_size && (
+                <p><strong>Size:</strong> {libraryFile.file_size > 1024 * 1024 ? (libraryFile.file_size / (1024*1024)).toFixed(2) + ' MB' : (libraryFile.file_size / 1024).toFixed(1) + ' KB'}</p>
+              )}
+              {libraryFile.file_mtime && (
+                <p><strong>Modified:</strong> {new Date(libraryFile.file_mtime).toLocaleString()}</p>
+              )}
+              {libraryFile.actual_duration_ms && (
+                <p><strong>Actual Duration:</strong> {formatDuration(libraryFile.actual_duration_ms)}</p>
+              )}
+            </div>
+            <div className="file-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+              <a href={`/api/v1/library/files/${libraryFile.id}/download`} target="_blank" rel="noreferrer">
+                <button>Download</button>
+              </a>
+              <button onClick={revealInExplorer}>Reveal in Explorer</button>
+              <button onClick={copyPath}>Copy Path</button>
+              <button onClick={deleteLibraryFile} style={{ background: '#f44336', color: 'white' }}>Delete File</button>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Track Identities */}
       <section className="track-identities">
