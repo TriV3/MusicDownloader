@@ -40,13 +40,25 @@ export const DashboardPage: React.FC = () => {
   const sorted = React.useMemo(() => {
     const list = stats ? [...stats] : null
     if (!list) return null
-    // Sort by highest pending first, keep 'Other' last
+    // Sort by priority: pending first (descending), then not_found (descending), keep 'Other' last
     list.sort((a, b) => {
       const aOther = a.playlist_id == null
       const bOther = b.playlist_id == null
       if (aOther && !bOther) return 1
       if (!aOther && bOther) return -1
-      return (b.not_downloaded_tracks - a.not_downloaded_tracks) || a.name.localeCompare(b.name)
+      
+      // First sort by pending tracks (not_downloaded_tracks)
+      const pendingDiff = b.not_downloaded_tracks - a.not_downloaded_tracks
+      if (pendingDiff !== 0) return pendingDiff
+      
+      // Then by not found tracks
+      const aNotFound = a.searched_not_found || 0
+      const bNotFound = b.searched_not_found || 0
+      const notFoundDiff = bNotFound - aNotFound
+      if (notFoundDiff !== 0) return notFoundDiff
+      
+      // Finally by name
+      return a.name.localeCompare(b.name)
     })
     return list
   }, [stats])
