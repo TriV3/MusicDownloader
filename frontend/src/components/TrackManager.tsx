@@ -326,6 +326,65 @@ export const TrackManager: React.FC = () => {
     }
   }
 
+  const verifyAndOrganizePlaylists = async () => {
+    // Verify that all downloaded tracks have files in the correct playlist folders and create missing copies
+    try {
+      const r = await fetch('/api/v1/library/files/verify_and_organize_playlists', { method: 'POST' })
+      if (r.ok) {
+        try {
+          const data = await r.json()
+          
+          // Log all results to console
+          console.group('📁 Playlist Verification Results')
+          console.log(`✅ Tracks checked: ${data.total_tracks_checked}`)
+          console.log(`✅ Files verified: ${data.files_verified}`)
+          console.log(`✅ Files created: ${data.files_created}`)
+          
+          if (data.files_missing && data.files_missing.length > 0) {
+            console.group(`⚠️ Missing files: ${data.files_missing.length}`)
+            data.files_missing.forEach((file: string) => console.warn(file))
+            console.groupEnd()
+          }
+
+          if (Array.isArray(data.size_conflicts) && data.size_conflicts.length > 0) {
+            console.group(`🔴 SIZE CONFLICTS DETECTED: ${data.size_conflicts.length} track(s)`)
+            for (const conflict of data.size_conflicts) {
+              console.group(`Track #${conflict.track_id} "${conflict.track_title}"`)
+              for (const file of conflict.files) {
+                console.warn(`${file.path} (${file.size} bytes)`)
+              }
+              console.groupEnd()
+            }
+            console.groupEnd()
+          }
+
+          if (Array.isArray(data.errors) && data.errors.length > 0) {
+            console.group(`❌ Errors: ${data.errors.length}`)
+            data.errors.forEach((e: any) => {
+              console.error(`Track #${e.track_id} "${e.track_title}": ${e.error}`)
+            })
+            console.groupEnd()
+          }
+          
+          console.groupEnd()
+          
+          // Simple alert to notify completion
+          alert(`Verification completed! Check browser console for detailed results.\n\nTracks: ${data.total_tracks_checked} | Verified: ${data.files_verified} | Created: ${data.files_created}`)
+        } catch {}
+        // Refresh UI flags and track list
+        loadTracks(); loadLibraryFlags()
+        window.dispatchEvent(new CustomEvent('library:changed'))
+      } else {
+        const t = await r.text()
+        console.error('Verification failed:', r.status, t)
+        alert('Verification failed: ' + r.status + ' (see console for details)')
+      }
+    } catch (e) {
+      console.error('Verification error', e)
+      alert('Verification error (see console for details)')
+    }
+  }
+
   const handlePlayTrack = async (track: TrackRead) => {
     // Check if track is already playing, toggle if so
     if (currentTrack?.id === track.id) {
@@ -488,9 +547,10 @@ export const TrackManager: React.FC = () => {
         <input placeholder='Artists' value={rawArtists} onChange={e => setRawArtists(e.target.value)} style={{ flex: 1 }} />
         <input placeholder='Title' value={rawTitle} onChange={e => setRawTitle(e.target.value)} style={{ flex: 1 }} />
         <button disabled={!rawArtists || !rawTitle || loading} onClick={create}>Create</button>
-    <button onClick={() => { loadTracks(); loadLibraryFlags() }} disabled={reloading}>{reloading ? 'Refreshing…' : 'Refresh'}</button>
+        <button onClick={() => { loadTracks(); loadLibraryFlags() }} disabled={reloading}>{reloading ? 'Refreshing…' : 'Refresh'}</button>
     <button onClick={reindexLibrary} title="Disk → DB: Scan the library folder and link files to existing tracks; also updates missing durations using ffprobe when available">Reindex Library (Disk → DB)</button>
     <button onClick={reverseReindex} title="Tracks → Disk: Verify tracks in DB against files on disk and link missing LibraryFile entries">Reverse Reindex (Tracks → Disk)</button>
+    <button onClick={verifyAndOrganizePlaylists} title="Verify all downloaded tracks are in correct playlist folders and create missing copies">Verify Playlist Files</button>
         <div className="column-toggle-wrapper">
           <button className="column-toggle-button" onClick={() => setShowColumnMenu(!showColumnMenu)} title="Show/hide columns">
             ⚙️

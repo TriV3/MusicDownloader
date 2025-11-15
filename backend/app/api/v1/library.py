@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 import re
 from typing import List, Optional
+import shutil
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response
@@ -714,3 +715,212 @@ async def stream_by_track_id(track_id: int, request: Request, session: AsyncSess
         status_code=200,
         headers=headers
     )
+
+
+@router.post("/verify_and_organize_playlists", tags=["library"], summary="Verify and organize all downloaded tracks into playlist folders")
+async def verify_and_organize_playlists(session: AsyncSession = Depends(get_session)):
+    """
+    For all tracks with completed downloads:
+    1. Verify files exist in correct playlist folders
+    2. Create missing copies for tracks in multiple playlists
+    3. Report file size conflicts
+    
+    Returns detailed report of actions taken and issues found.
+    """
+    from sqlalchemy import select as _select
+    try:
+        from ...db.models.models import Download, Playlist, PlaylistTrack  # type: ignore
+        from ...utils.downloader import _sanitize_component  # type: ignore
+    except Exception:  # pragma: no cover
+        from db.models.models import Download, Playlist, PlaylistTrack  # type: ignore
+        from utils.downloader import _sanitize_component  # type: ignore
+    
+    # Get library directory
+    lib_dir = Path(os.environ.get("LIBRARY_DIR") or settings.library_dir).resolve()
+    
+    # Get all tracks that have at least one existing library file
+    # This is more reliable than checking Download status
+    library_file_stmt = (
+        _select(LibraryFile.track_id)
+        .where(LibraryFile.exists == True)  # noqa: E712
+        .distinct()
+    )
+    library_file_result = await session.execute(library_file_stmt)
+    track_ids_with_files = set(row[0] for row in library_file_result.all())
+    
+    if not track_ids_with_files:
+        return {
+            "total_tracks_checked": 0,
+            "files_verified": 0,
+            "files_created": 0,
+            "files_missing": 0,
+            "size_conflicts": [],
+            "errors": []
+        }
+    
+    files_verified = 0
+    files_created = 0
+    files_missing = 0
+    size_conflicts = []
+    errors = []
+    
+    for track_id in track_ids_with_files:
+        try:
+            # Get track details
+            track = await session.get(Track, track_id)
+            if not track:
+                continue
+            
+            # Get all playlists for this track
+            playlist_stmt = (
+                _select(Playlist)
+                .join(PlaylistTrack)
+                .where(PlaylistTrack.track_id == track_id)
+            )
+            playlist_result = await session.execute(playlist_stmt)
+            playlists = playlist_result.scalars().all()
+            
+            if not playlists:
+                # Track has download but no playlists - orphaned
+                errors.append({
+                    "track_id": track_id,
+                    "track_title": f"{track.artists} - {track.title}",
+                    "error": "Track has completed download but no playlist memberships"
+                })
+                continue
+            
+            # Get existing library files for this track
+            lf_stmt = _select(LibraryFile).where(
+                LibraryFile.track_id == track_id,
+                LibraryFile.exists == True  # noqa: E712
+            )
+            lf_result = await session.execute(lf_stmt)
+            existing_library_files = lf_result.scalars().all()
+            
+            # Build map of existing files by path
+            existing_files_map = {}
+            for lf in existing_library_files:
+                if lf.filepath and Path(lf.filepath).exists():
+                    existing_files_map[lf.filepath] = lf.file_size
+            
+            if not existing_files_map:
+                files_missing += len(playlists)
+                errors.append({
+                    "track_id": track_id,
+                    "track_title": f"{track.artists} - {track.title}",
+                    "error": f"No files found on disk (expected in {len(playlists)} playlist(s))"
+                })
+                continue
+            
+            # Build filename
+            artists_str = _sanitize_component(track.artists or "Unknown Artist")
+            title_str = _sanitize_component(track.title or "Unknown Title")
+            
+            # Determine extension from existing files
+            existing_extensions = set()
+            for filepath in existing_files_map.keys():
+                ext = Path(filepath).suffix
+                if ext:
+                    existing_extensions.add(ext)
+            
+            if not existing_extensions:
+                errors.append({
+                    "track_id": track_id,
+                    "track_title": f"{track.artists} - {track.title}",
+                    "error": "Could not determine file extension"
+                })
+                continue
+            
+            # Use the first found extension (should be same for all)
+            ext = list(existing_extensions)[0]
+            filename = f"{artists_str} - {title_str}{ext}"
+            
+            # Check if multiple different file sizes exist
+            unique_sizes = set(existing_files_map.values())
+            if len(unique_sizes) > 1:
+                size_conflicts.append({
+                    "track_id": track_id,
+                    "track_title": f"{track.artists} - {track.title}",
+                    "files": [
+                        {"path": path, "size": size}
+                        for path, size in existing_files_map.items()
+                    ]
+                })
+            
+            # Get a source file for copying (use the largest if multiple sizes)
+            source_file = None
+            source_size = 0
+            for filepath, size in existing_files_map.items():
+                if size > source_size:
+                    source_file = Path(filepath)
+                    source_size = size
+            
+            if not source_file or not source_file.exists():
+                continue
+            
+            # Verify/create file in each playlist folder
+            for playlist in playlists:
+                try:
+                    provider_folder = _sanitize_component(
+                        playlist.provider.value if hasattr(playlist.provider, 'value') else str(playlist.provider)
+                    )
+                    playlist_folder = _sanitize_component(playlist.name)
+                    
+                    target_dir = lib_dir / provider_folder / playlist_folder
+                    target_path = target_dir / filename
+                    
+                    # Check if file already exists
+                    if str(target_path) in existing_files_map:
+                        files_verified += 1
+                        continue
+                    
+                    # File missing - create it
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Copy file
+                    shutil.copy2(source_file, target_path)
+                    files_created += 1
+                    
+                    # Create LibraryFile entry
+                    try:
+                        st = target_path.stat()
+                        new_lf = LibraryFile(
+                            track_id=track_id,
+                            filepath=str(target_path),
+                            file_mtime=datetime.utcfromtimestamp(st.st_mtime),
+                            file_size=int(st.st_size),
+                            exists=True,
+                        )
+                        session.add(new_lf)
+                    except Exception as e:
+                        errors.append({
+                            "track_id": track_id,
+                            "track_title": f"{track.artists} - {track.title}",
+                            "error": f"Failed to create LibraryFile entry for {target_path}: {str(e)}"
+                        })
+                        
+                except Exception as e:
+                    errors.append({
+                        "track_id": track_id,
+                        "track_title": f"{track.artists} - {track.title}",
+                        "error": f"Failed to verify/create file in playlist {playlist.name}: {str(e)}"
+                    })
+                    
+        except Exception as e:
+            errors.append({
+                "track_id": track_id,
+                "track_title": "Unknown",
+                "error": f"Failed to process track: {str(e)}"
+            })
+    
+    await session.commit()
+    
+    return {
+        "total_tracks_checked": len(track_ids_with_files),
+        "files_verified": files_verified,
+        "files_created": files_created,
+        "files_missing": files_missing,
+        "size_conflicts": size_conflicts,
+        "errors": errors
+    }
+

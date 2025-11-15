@@ -1073,6 +1073,147 @@ async def spotify_sync_playlists(
         )
         for existing_link in result_links.scalars().all():
             if existing_link.track_id not in new_playlist_track_ids:
+                # Handle file management when removing track from playlist
+                try:
+                    from pathlib import Path as _Path
+                    import os as _os
+                    import shutil as _shutil
+                    from ..core.config import settings as _settings  # type: ignore
+                    
+                    def _sanitize_component(name: str) -> str:
+                        import re as _re
+                        s = _re.sub(r"[\\/:*?\"<>|]+", "_", name or "")
+                        s = _re.sub(r"\s{2,}", " ", s)
+                        return s.strip(" .")
+                    
+                    # Get track info
+                    track_to_remove = await session.get(Track, existing_link.track_id)
+                    if track_to_remove and pl:
+                        # Check if track will still belong to other Spotify playlists after removal
+                        other_spotify_playlists_query = (
+                            select(Playlist)
+                            .join(PlaylistTrack)
+                            .where(
+                                PlaylistTrack.track_id == existing_link.track_id,
+                                Playlist.id != pl.id,  # Exclude current playlist being synced
+                                Playlist.provider == SourceProvider.spotify
+                            )
+                        )
+                        other_spotify_result = await session.execute(other_spotify_playlists_query)
+                        other_spotify_playlists = other_spotify_result.scalars().all()
+                        
+                        lib_root = _Path(_os.environ.get("LIBRARY_DIR") or _settings.library_dir).resolve()
+                        provider_folder = _sanitize_component(pl.provider.value if hasattr(pl.provider, 'value') else str(pl.provider))
+                        artists_safe = _sanitize_component(track_to_remove.artists or "Unknown Artist")
+                        title_safe = _sanitize_component(track_to_remove.title or "Unknown Title")
+                        
+                        # Find the file in current playlist folder
+                        found_file = None
+                        found_ext = None
+                        for ext in ['.mp3', '.m4a', '.opus', '.ogg', '.flac']:
+                            file_path = lib_root / provider_folder / _sanitize_component(pl.name or "") / f"{artists_safe} - {title_safe}{ext}"
+                            if file_path.exists():
+                                found_file = file_path
+                                found_ext = ext
+                                break
+                        
+                        if found_file:
+                            if len(other_spotify_playlists) == 0:
+                                # Track no longer in ANY Spotify playlist -> Move to "Other" playlist
+                                import logging
+                                logger = logging.getLogger("playlists")
+                                
+                                # Get or create "Other" playlist
+                                other_playlist_query = select(Playlist).where(
+                                    Playlist.provider == SourceProvider.other,
+                                    Playlist.name == "Other"
+                                )
+                                other_pl_result = await session.execute(other_playlist_query)
+                                other_pl = other_pl_result.scalars().first()
+                                
+                                if not other_pl:
+                                    # Create "Other" playlist if it doesn't exist
+                                    other_pl = Playlist(
+                                        provider=SourceProvider.other,
+                                        external_id="other",
+                                        name="Other",
+                                        owner_name="System"
+                                    )
+                                    session.add(other_pl)
+                                    await session.flush()
+                                    logger.info("Created 'Other' playlist for orphaned tracks")
+                                
+                                # Move file to "Other" playlist folder
+                                other_folder = lib_root / "other" / "Other"
+                                other_folder.mkdir(parents=True, exist_ok=True)
+                                other_file_path = other_folder / f"{artists_safe} - {title_safe}{found_ext}"
+                                
+                                try:
+                                    # Move the file
+                                    _shutil.move(str(found_file), str(other_file_path))
+                                    logger.info(f"Moved track {track_to_remove.id} ({track_to_remove.artists} - {track_to_remove.title}) from Spotify to 'Other' playlist")
+                                    
+                                    # Update LibraryFile entry
+                                    from sqlalchemy import delete as sql_delete
+                                    await session.execute(
+                                        sql_delete(LibraryFile).where(LibraryFile.filepath == str(found_file))
+                                    )
+                                    
+                                    # Create new LibraryFile for "Other" playlist location
+                                    new_lf = LibraryFile(
+                                        track_id=existing_link.track_id,
+                                        filepath=str(other_file_path),
+                                        file_mtime=datetime.utcnow(),
+                                        file_size=other_file_path.stat().st_size if other_file_path.exists() else 0,
+                                        exists=True
+                                    )
+                                    session.add(new_lf)
+                                    
+                                    # Add track to "Other" playlist if not already there
+                                    existing_other_link = await session.execute(
+                                        select(PlaylistTrack).where(
+                                            PlaylistTrack.playlist_id == other_pl.id,
+                                            PlaylistTrack.track_id == existing_link.track_id
+                                        )
+                                    )
+                                    if not existing_other_link.scalars().first():
+                                        # Get max position in Other playlist
+                                        max_pos_result = await session.execute(
+                                            select(func.max(PlaylistTrack.position)).where(
+                                                PlaylistTrack.playlist_id == other_pl.id
+                                            )
+                                        )
+                                        max_pos = max_pos_result.scalar() or -1
+                                        
+                                        new_link = PlaylistTrack(
+                                            playlist_id=other_pl.id,
+                                            track_id=existing_link.track_id,
+                                            position=max_pos + 1
+                                        )
+                                        session.add(new_link)
+                                        logger.info(f"Added track {track_to_remove.id} to 'Other' playlist")
+                                    
+                                except Exception as move_error:
+                                    logger.warning(f"Failed to move file to 'Other' playlist: {move_error}. Deleting file instead.")
+                                    # Fallback: delete the file if move fails
+                                    if found_file.exists():
+                                        found_file.unlink()
+                                    from sqlalchemy import delete as sql_delete
+                                    await session.execute(
+                                        sql_delete(LibraryFile).where(LibraryFile.filepath == str(found_file))
+                                    )
+                            else:
+                                # Track still in other Spotify playlists -> just delete this copy
+                                found_file.unlink()
+                                from sqlalchemy import delete as sql_delete
+                                await session.execute(
+                                    sql_delete(LibraryFile).where(LibraryFile.filepath == str(found_file))
+                                )
+                except Exception as e:
+                    # Log but don't fail the sync if file handling fails
+                    import logging
+                    logging.getLogger("playlists").warning(f"Failed to handle file removal for track {existing_link.track_id}: {e}")
+                
                 await session.delete(existing_link)
                 removed += 1
 
