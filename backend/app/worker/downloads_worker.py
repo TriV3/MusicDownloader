@@ -147,6 +147,20 @@ class DownloadQueue:
                                 exists=True,
                             )
                             session.add(lf)
+                        
+                        # Extract actual duration from downloaded file using ffprobe
+                        try:
+                            from ..utils.downloader import extract_audio_duration  # type: ignore
+                            actual_duration_ms = await extract_audio_duration(p)
+                            if actual_duration_ms is not None:
+                                lf.actual_duration_ms = actual_duration_ms
+                                # Also backfill Track.duration_ms if it's missing or zero
+                                from ..db.models.models import Track as _Track  # type: ignore
+                                tr = await session.get(_Track, dl.track_id)
+                                if tr and (tr.duration_ms is None or tr.duration_ms == 0):
+                                    tr.duration_ms = actual_duration_ms
+                        except Exception as e:
+                            print(f"[worker] Failed to extract duration for {p}: {e}")
 
                         # Replicate into each Spotify playlist folder for this track (download once, copy to multiple playlists)
                         try:

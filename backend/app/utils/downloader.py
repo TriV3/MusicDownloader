@@ -43,6 +43,40 @@ def _sanitize_component(name: str) -> str:
     return s.strip(" .")
 
 
+async def extract_audio_duration(filepath: Path) -> Optional[int]:
+    """Extract actual audio duration in milliseconds using ffprobe.
+    
+    Returns:
+        Duration in milliseconds, or None if extraction fails.
+    """
+    try:
+        import json
+        cmd = [
+            "ffprobe", "-v", "error", "-select_streams", "a:0",
+            "-show_entries", "format=duration", "-of", "json", str(filepath)
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+        
+        if proc.returncode == 0 and stdout:
+            data = json.loads(stdout.decode())
+            if isinstance(data, dict):
+                fmt = data.get("format") or {}
+                dur_str = fmt.get("duration")
+                if isinstance(dur_str, str):
+                    dur = float(dur_str)
+                    if dur > 0:
+                        return int(dur * 1000)
+    except Exception:
+        # Ignore ffprobe failures
+        pass
+    return None
+
+
 async def _set_file_timestamps(file_path: Path, track: Track, track_id: int) -> None:
     """Set file timestamps based on track metadata and playlist context.
     
