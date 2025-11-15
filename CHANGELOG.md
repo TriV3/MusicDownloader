@@ -6,6 +6,33 @@ Versioning scheme:
 - Versions follow semantic versioning for stable releases (1.0.0+) and `0.<phase>.<minor>` for development milestones.
 - Each tagged version represents the completion of a documented milestone.
 
+## 1.2.0 — Playlist File Organization & Verification (November 15, 2025)
+
+### ✨ New Features
+
+#### Playlist File Verification Tool
+- **Verify Playlist Files Button**: Added new verification tool in Track Manager to ensure file organization integrity
+  - New endpoint `POST /api/v1/library/files/verify_and_organize_playlists` checks all tracks with library files
+  - Verifies that files exist in correct playlist folders based on track memberships
+  - Automatically creates missing copies for tracks in multiple playlists
+  - Detects and reports file size conflicts (same track with different file sizes)
+  - Comprehensive console logging with organized groups for easy debugging
+  - Reports total tracks checked, files verified, files created, missing files, and errors
+
+### 🐛 Bug Fixes
+
+- **File Organization**: Fixed orphaned track handling to move files to "Other" playlist when removed from all Spotify playlists
+- **Library Path**: Corrected library directory path resolution in verification endpoint to use `settings.library_dir` instead of non-existent `settings.LIBRARY_DIR`
+- **Download Worker**: Ensured files are copied to all playlist folders during download, not just Spotify playlists
+
+### 🔧 Improvements
+
+- **Console Output**: Replaced popup alerts with detailed browser console logging for verification results
+  - File conflicts logged with full paths and sizes
+  - Missing files listed completely (no truncation)
+  - Errors shown with track details for easier debugging
+- **Verification Logic**: Changed from checking `Download.status == "done"` to checking `LibraryFile.exists == True` for more reliable track discovery
+
 ## 1.1.0 — Manual YouTube Search & User Preferences (November 14, 2025)
 
 ### ✨ New Features
