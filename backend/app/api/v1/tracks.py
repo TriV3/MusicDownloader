@@ -280,9 +280,32 @@ async def ready_for_download(
 
 @router.delete("/{track_id}", status_code=204)
 async def delete_track(track_id: int, session: AsyncSession = Depends(get_session)):
+    import os
+    import logging
+    
+    logger = logging.getLogger("tracks")
+    
     track = await session.get(Track, track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
+    
+    # Get all library files associated with this track to delete them from disk
+    stmt = select(LibraryFile).where(LibraryFile.track_id == track_id)
+    result = await session.execute(stmt)
+    library_files = result.scalars().all()
+    
+    # Delete physical files from disk
+    for lib_file in library_files:
+        try:
+            if os.path.exists(lib_file.filepath):
+                os.remove(lib_file.filepath)
+                logger.info(f"Deleted file from disk: {lib_file.filepath}")
+            else:
+                logger.warning(f"File not found on disk (already deleted?): {lib_file.filepath}")
+        except Exception as e:
+            logger.error(f"Failed to delete file {lib_file.filepath}: {e}")
+            # Continue with database deletion even if file deletion fails
+    
     # Manually cascade delete dependent rows (SQLite without FK cascades enabled by default here)
     await session.execute(delete(TrackIdentity).where(TrackIdentity.track_id == track_id))
     await session.execute(delete(SearchCandidate).where(SearchCandidate.track_id == track_id))

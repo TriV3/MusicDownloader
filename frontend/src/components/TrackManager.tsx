@@ -703,7 +703,7 @@ export const TrackManager: React.FC = () => {
               {showDownloadedColumn && <td className="col-dates">{downloadedIds.has(t.id) ? 'Yes' : 'No'}</td>}
               <td className="col-actions">
                 <Link to={`/tracks/${t.id}`}>View</Link>
-                <button onClick={() => remove(t.id)}>Delete</button>
+                {downloadedIds.has(t.id) && <button onClick={() => remove(t.id)}>Delete</button>}
               </td>
             </tr>
             )})}
