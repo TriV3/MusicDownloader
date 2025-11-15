@@ -120,10 +120,12 @@ const PlaylistsPage: React.FC = () => {
       let data: any = {}
       try { data = await r.json() } catch { data = {} }
       if (typeof data.total_tracks_created === 'number') {
-        setLastSync(`Created ${data.total_tracks_created}, Updated ${data.total_tracks_updated}, Linked ${data.total_links_created}`)
+        setLastSync(`Created ${data.total_tracks_created}, Updated ${data.total_tracks_updated}, Linked ${data.total_links_created}, Removed ${data.total_links_removed || 0}`)
       } else {
         setLastSync('Sync completed (no summary fields)')
       }
+      // Notify other components to refresh their data
+      window.dispatchEvent(new CustomEvent('tracks:changed'))
     } catch (e:any) {
       setLastSync('Sync error: ' + (e?.message || e))
     } finally {
