@@ -36,9 +36,11 @@ export const DownloadsPage: React.FC = () => {
   const load = React.useCallback(async () => {
     setLoading(true)
     try {
-  const r = await fetch('/api/v1/downloads/with_tracks?limit=100')
+      const r = await fetch('/api/v1/downloads/with_tracks?limit=30')
       if (!r.ok) return
       setItems(await r.json())
+      // Auto-cleanup old downloads (keep only 30 most recent)
+      fetch('/api/v1/downloads/cleanup', { method: 'POST' }).catch(() => {})
     } finally {
       setLoading(false)
     }
@@ -242,50 +244,70 @@ export const DownloadsPage: React.FC = () => {
           <input type='checkbox' checked={includeDownloaded} onChange={e => setIncludeDownloaded(e.target.checked)} /> Include downloaded
         </label>
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ textAlign: 'left' }}>
-            <th>ID</th>
-            <th>Track ID</th>
-            <th>Title</th>
-            <th>Artists</th>
-            <th>Candidate</th>
-            <th>Status</th>
-            <th>Started</th>
-            <th>Finished</th>
-            <th>Error</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map(d => (
-            <tr key={d.id}>
-              <td>{d.id}</td>
-              <td>{d.track_id}</td>
-              <td>{d.track_title ?? '-'}</td>
-              <td>{d.track_artists ?? '-'}</td>
-              <td>{d.candidate_id ?? '-'}</td>
-              <td>{d.status}</td>
-              <td>{d.started_at ? new Date(d.started_at).toLocaleTimeString() : '-'}</td>
-              <td>{d.finished_at ? new Date(d.finished_at).toLocaleTimeString() : '-'}</td>
-              <td>
-                <div
-                  style={{
-                    color: '#b00',
-                    maxWidth: 360,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={d.error_message ?? ''}
-                >
-                  {d.error_message ?? ''}
-                </div>
-              </td>
+      <div style={{ border: '1px solid #ddd', borderRadius: 6, overflow: 'hidden' }}>
+        <h3 style={{ margin: 0, padding: 12, background: '#f5f5f5', borderBottom: '1px solid #ddd' }}>Recent Downloads (Last 30)</h3>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ textAlign: 'left', background: '#fafafa' }}>
+              <th style={{ padding: '8px 12px', borderBottom: '1px solid #ddd' }}>Track</th>
+              <th style={{ padding: '8px 12px', borderBottom: '1px solid #ddd' }}>Status</th>
+              <th style={{ padding: '8px 12px', borderBottom: '1px solid #ddd' }}>Time</th>
+              <th style={{ padding: '8px 12px', borderBottom: '1px solid #ddd' }}>Error</th>
             </tr>
-          ))}
-          {items.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 8 }}>No downloads</td></tr>}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map(d => {
+              const statusColor = d.status === 'done' ? '#4caf50' : d.status === 'failed' ? '#f44336' : d.status === 'running' ? '#2196f3' : d.status === 'already' ? '#9e9e9e' : '#ff9800'
+              return (
+                <tr key={d.id} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '8px 12px' }}>
+                    <div style={{ fontWeight: 500 }}>{d.track_artists ?? 'Unknown'}</div>
+                    <div style={{ fontSize: '0.9em', color: '#666' }}>{d.track_title ?? 'Unknown Title'}</div>
+                    <div style={{ fontSize: '0.85em', color: '#999' }}>Track #{d.track_id}</div>
+                  </td>
+                  <td style={{ padding: '8px 12px' }}>
+                    <span style={{ 
+                      padding: '4px 8px', 
+                      borderRadius: 4, 
+                      background: statusColor + '20',
+                      color: statusColor,
+                      fontSize: '0.9em',
+                      fontWeight: 500
+                    }}>
+                      {d.status}
+                    </span>
+                  </td>
+                  <td style={{ padding: '8px 12px', fontSize: '0.9em', color: '#666' }}>
+                    {d.finished_at ? new Date(d.finished_at).toLocaleString() : 
+                     d.started_at ? new Date(d.started_at).toLocaleString() : 
+                     new Date(d.created_at).toLocaleString()}
+                  </td>
+                  <td style={{ padding: '8px 12px' }}>
+                    {d.error_message ? (
+                      <div style={{ 
+                        color: '#f44336',
+                        fontSize: '0.9em',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        maxWidth: 500
+                      }}>
+                        {d.error_message}
+                      </div>
+                    ) : '-'}
+                  </td>
+                </tr>
+              )
+            })}
+            {items.length === 0 && (
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center', padding: 20, color: '#999' }}>
+                  No downloads yet
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
       <div style={{ borderTop: '1px solid #eee', marginTop: 16, paddingTop: 12 }}>
         <h3 style={{ marginTop: 0 }}>Library Files</h3>

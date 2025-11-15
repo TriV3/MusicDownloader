@@ -316,3 +316,35 @@ async def stop_all_downloads(session: AsyncSession = Depends(get_session)):
     except Exception:
         worker_stopped = False
     return {"ok": True, "queued_skipped": int(queued_skipped), "worker_stopped": worker_stopped}
+
+
+@router.post("/cleanup")
+async def cleanup_old_downloads(session: AsyncSession = Depends(get_session), keep_count: int = Query(30, ge=10, le=100)):
+    """Delete old download records, keeping only the most recent ones.
+    
+    Args:
+        keep_count: Number of most recent downloads to keep (default: 30)
+    
+    Returns:
+        Number of deleted records
+    """
+    # Get IDs of downloads to keep (most recent based on created_at)
+    stmt_keep = (
+        select(Download.id)
+        .order_by(desc(Download.created_at))
+        .limit(keep_count)
+    )
+    result = await session.execute(stmt_keep)
+    keep_ids = [row[0] for row in result.all()]
+    
+    if not keep_ids:
+        return {"deleted": 0}
+    
+    # Delete all downloads not in the keep list
+    from sqlalchemy import delete as sql_delete
+    stmt_delete = sql_delete(Download).where(Download.id.notin_(keep_ids))
+    result = await session.execute(stmt_delete)
+    deleted_count = result.rowcount or 0
+    await session.commit()
+    
+    return {"deleted": deleted_count, "kept": len(keep_ids)}
