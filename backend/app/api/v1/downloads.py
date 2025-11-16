@@ -318,6 +318,32 @@ async def stop_all_downloads(session: AsyncSession = Depends(get_session)):
     return {"ok": True, "queued_skipped": int(queued_skipped), "worker_stopped": worker_stopped}
 
 
+@router.post("/restart_worker")
+async def restart_download_worker():
+    """Restart the download worker.
+    
+    This stops the current worker (if running) and starts a new one.
+    Useful when downloads are stuck or the worker is unresponsive.
+    """
+    try:  # pragma: no cover
+        from ...worker import downloads_worker as dw  # type: ignore
+    except Exception:  # pragma: no cover
+        from worker import downloads_worker as dw  # type: ignore
+    
+    # Stop existing worker
+    try:
+        if dw.download_queue:
+            await dw.download_queue.stop()
+    except Exception:
+        pass
+    
+    # Start new worker with default settings
+    dw.download_queue = dw.DownloadQueue(concurrency=2, simulate_seconds=0.0)
+    await dw.download_queue.start()
+    
+    return {"ok": True, "message": "Download worker restarted successfully"}
+
+
 @router.post("/cleanup")
 async def cleanup_old_downloads(session: AsyncSession = Depends(get_session), keep_count: int = Query(30, ge=10, le=100)):
     """Delete old download records, keeping only the most recent ones.

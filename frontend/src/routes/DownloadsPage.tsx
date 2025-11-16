@@ -106,9 +106,52 @@ export const DownloadsPage: React.FC = () => {
     alert('Cancel failed: ' + r.status)
   }
 
+  const stopAllDownloads = async () => {
+    if (!confirm('Stop all downloads? Queued downloads will be marked as skipped.')) return
+    try {
+      const r = await fetch('/api/v1/downloads/stop_all', { method: 'POST' })
+      if (r.ok) {
+        const data = await r.json()
+        alert(`Stopped successfully!\nQueued downloads skipped: ${data.queued_skipped}\nWorker stopped: ${data.worker_stopped}`)
+        load()
+      } else {
+        alert('Failed to stop downloads: ' + r.status)
+      }
+    } catch (e) {
+      console.error('Stop all error:', e)
+      alert('Error stopping downloads')
+    }
+  }
+
+  const restartWorker = async () => {
+    if (!confirm('Restart the download worker? This will stop current downloads and restart the worker.')) return
+    try {
+      const r = await fetch('/api/v1/downloads/restart_worker', { method: 'POST' })
+      if (r.ok) {
+        alert('Download worker restarted successfully!')
+        load()
+      } else {
+        alert('Failed to restart worker: ' + r.status)
+      }
+    } catch (e) {
+      console.error('Restart worker error:', e)
+      alert('Error restarting worker')
+    }
+  }
+
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <h2>Downloads</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2 style={{ margin: 0 }}>Downloads</h2>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={stopAllDownloads} style={{ background: '#f44336', color: 'white', border: 'none', padding: '8px 16px', borderRadius: 4, cursor: 'pointer' }}>
+            Stop All Downloads
+          </button>
+          <button onClick={restartWorker} style={{ background: '#ff9800', color: 'white', border: 'none', padding: '8px 16px', borderRadius: 4, cursor: 'pointer' }}>
+            Restart Worker
+          </button>
+        </div>
+      </div>
       <div style={{ border: '1px solid #ddd', padding: 10, borderRadius: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <h3 style={{ margin: 0 }}>Ready to download</h3>
@@ -166,11 +209,13 @@ export const DownloadsPage: React.FC = () => {
               <th style={{ padding: '8px 12px', borderBottom: '1px solid #ddd' }}>Status</th>
               <th style={{ padding: '8px 12px', borderBottom: '1px solid #ddd' }}>Time</th>
               <th style={{ padding: '8px 12px', borderBottom: '1px solid #ddd' }}>Error</th>
+              <th style={{ padding: '8px 12px', borderBottom: '1px solid #ddd' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {items.map(d => {
               const statusColor = d.status === 'done' ? '#4caf50' : d.status === 'failed' ? '#f44336' : d.status === 'running' ? '#2196f3' : d.status === 'already' ? '#9e9e9e' : '#ff9800'
+              const canCancel = d.status === 'queued'
               return (
                 <tr key={d.id} style={{ borderBottom: '1px solid #eee' }}>
                   <td style={{ padding: '8px 12px' }}>
@@ -208,12 +253,30 @@ export const DownloadsPage: React.FC = () => {
                       </div>
                     ) : '-'}
                   </td>
+                  <td style={{ padding: '8px 12px' }}>
+                    {canCancel && (
+                      <button 
+                        onClick={() => cancelDownload(d.id)}
+                        style={{ 
+                          background: '#f44336', 
+                          color: 'white', 
+                          border: 'none', 
+                          padding: '4px 12px', 
+                          borderRadius: 4, 
+                          cursor: 'pointer',
+                          fontSize: '0.85em'
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </td>
                 </tr>
               )
             })}
             {items.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ textAlign: 'center', padding: 20, color: '#999' }}>
+                <td colSpan={5} style={{ textAlign: 'center', padding: 20, color: '#999' }}>
                   No downloads yet
                 </td>
               </tr>
