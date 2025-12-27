@@ -681,7 +681,9 @@ async def spotify_discover_playlists(
                 existing.name = name
                 existing.description = desc
                 existing.owner = owner
-                existing.snapshot = snapshot_id
+                # Do NOT update snapshot here; only the sync endpoint should update it
+                # after successfully ingesting tracks. Updating it here would cause the
+                # sync to skip when the user discovers new changes but hasn't synced yet.
                 if existing.source_account_id is None:
                     existing.source_account_id = account_id
                 discovered.append(existing)
@@ -762,6 +764,7 @@ async def spotify_select_playlists(
 @router.post("/spotify/sync")
 async def spotify_sync_playlists(
     account_id: int = Query(..., description="Spotify SourceAccount id"),
+    force: bool = Query(False, description="Force full sync even if snapshot unchanged"),
     body: Optional[Dict[str, Any]] = None,
     session: AsyncSession = Depends(get_session),
 ):
@@ -777,6 +780,7 @@ async def spotify_sync_playlists(
         * PlaylistTrack links are created/updated (position / added_at).
         * Links for tracks no longer present in the remote playlist are deleted (removals).
         * The playlist's stored snapshot is updated to the new snapshot id.
+    - Use force=true to bypass the snapshot check and always perform a full sync.
 
     Body (optional): { "playlist_ids": ["spotify_playlist_id", ...] }
 
@@ -866,11 +870,11 @@ async def spotify_sync_playlists(
                 # If snapshot fetch fails, fall back to full sync attempt (raise original later if track fetch fails)
                 remote_snapshot = None
 
-        # Skip only if snapshot unchanged AND the playlist already has links
+        # Skip only if snapshot unchanged AND the playlist already has links AND not forced
         # This avoids skipping the very first sync in cases where a snapshot was
         # persisted during discovery but tracks were never ingested yet.
         should_skip = False
-        if pl.snapshot and remote_snapshot and pl.snapshot == remote_snapshot:
+        if not force and pl.snapshot and remote_snapshot and pl.snapshot == remote_snapshot:
             # Check if any PlaylistTrack rows already exist for this playlist
             result_count = await session.execute(
                 select(func.count(PlaylistTrack.id)).where(PlaylistTrack.playlist_id == pl.id)

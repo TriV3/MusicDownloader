@@ -15,8 +15,25 @@ export const DashboardPage: React.FC = () => {
   const [stats, setStats] = React.useState<PlaylistStat[] | null>(null)
   const [statsError, setStatsError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState<Record<string, string | null>>({})
+  const [syncing, setSyncing] = React.useState(false)
+  const [syncResult, setSyncResult] = React.useState<string | null>(null)
+  const [accountId, setAccountId] = React.useState<number | null>(null)
   const burstRef = React.useRef<number>(0)
   const statsRef = React.useRef<PlaylistStat[] | null>(null)
+
+  // Ensure we have a Spotify account ID for sync
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch('/api/v1/oauth/spotify/ensure_account', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+        if (r.ok) {
+          const acc = await r.json()
+          setAccountId(acc.id)
+        }
+      } catch {}
+    })()
+  }, [])
+
   React.useEffect(() => {
     let cancelled = false
     const load = () => {
@@ -63,13 +80,61 @@ export const DashboardPage: React.FC = () => {
     return list
   }, [stats])
 
+  const syncPlaylists = async () => {
+    if (!accountId) {
+      setSyncResult('No Spotify account configured')
+      return
+    }
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const r = await fetch(`/api/v1/playlists/spotify/sync?account_id=${accountId}`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' } 
+      })
+      if (!r.ok) {
+        let errDetail = ''
+        try { errDetail = (await r.json()).detail } catch { errDetail = await r.text() }
+        setSyncResult(`Sync failed (${r.status}): ${errDetail.substring(0, 180)}`)
+        return
+      }
+      let data: any = {}
+      try { data = await r.json() } catch { data = {} }
+      if (typeof data.total_tracks_created === 'number') {
+        setSyncResult(`Created ${data.total_tracks_created}, Updated ${data.total_tracks_updated}, Linked ${data.total_links_created}, Removed ${data.total_links_removed || 0}`)
+      } else {
+        setSyncResult('Sync completed')
+      }
+      // Refresh stats after sync
+      fetch('/api/v1/playlists/stats?selected_only=true')
+        .then(r => r.json())
+        .then((d: PlaylistStat[]) => { setStats(d); statsRef.current = d })
+        .catch(() => {})
+      // Notify other components to refresh their data
+      window.dispatchEvent(new CustomEvent('tracks:changed'))
+    } catch (e: any) {
+      setSyncResult('Sync error: ' + (e?.message || e))
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <h2 style={{ marginTop: 0 }}>Dashboard</h2>
       <section style={{ display: 'grid', gap: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: '12px 0 4px' }}>Playlists — Pending downloads</h3>
-          <div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              className="pl-btn"
+              onClick={syncPlaylists}
+              disabled={syncing || !accountId}
+              title="Sync selected Spotify playlists to get new tracks"
+            >
+              {syncing ? 'Syncing…' : 'Sync playlists'}
+            </button>
+            {syncResult && <span className="pl-note">{syncResult}</span>}
             <button
               className="pl-btn"
               onClick={async () => {

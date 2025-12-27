@@ -6,6 +6,27 @@ Versioning scheme:
 - Versions follow semantic versioning for stable releases (1.0.0+) and `0.<phase>.<minor>` for development milestones.
 - Each tagged version represents the completion of a documented milestone.
 
+## 1.2.1 — Spotify Playlist Sync Fix (December 27, 2025)
+
+### 🐛 Bug Fixes
+
+- **Playlist Sync**: Fixed issue where "Sync selected" button was not detecting new tracks added to Spotify playlists
+  - Root cause: The "Discover from Spotify" endpoint was updating the local snapshot for existing playlists, causing the sync to skip because the snapshot appeared unchanged
+  - Solution: Discover endpoint no longer updates snapshot on existing playlists; only the sync endpoint updates it after successfully ingesting tracks
+  - This ensures that when users add/remove tracks on Spotify, the sync properly detects and applies those changes
+
+### ✨ New Features
+
+- **Dashboard Sync Button**: Added "Sync playlists" button on Dashboard page for quick playlist synchronization without navigating to Playlists tab
+  - Shows sync progress status and results
+  - Automatically refreshes playlist statistics after sync
+  
+- **Force Sync Parameter**: Added `force=true` parameter to `/api/v1/playlists/spotify/sync` endpoint to bypass snapshot check and force a full resync
+
+### 🔧 Improvements
+
+- **Dashboard Statistics**: Playlist counters now properly update after sync operations
+
 ## 1.2.0 — Playlist File Organization & Verification (November 15, 2025)
 
 ### ✨ New Features
