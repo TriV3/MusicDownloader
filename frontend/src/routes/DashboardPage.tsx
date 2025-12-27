@@ -80,7 +80,7 @@ export const DashboardPage: React.FC = () => {
     return list
   }, [stats])
 
-  const syncPlaylists = async () => {
+  const syncPlaylists = async (force: boolean = false) => {
     if (!accountId) {
       setSyncResult('No Spotify account configured')
       return
@@ -88,7 +88,8 @@ export const DashboardPage: React.FC = () => {
     setSyncing(true)
     setSyncResult(null)
     try {
-      const r = await fetch(`/api/v1/playlists/spotify/sync?account_id=${accountId}`, { 
+      const forceParam = force ? '&force=true' : ''
+      const r = await fetch(`/api/v1/playlists/spotify/sync?account_id=${accountId}${forceParam}`, { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' } 
       })
@@ -128,12 +129,13 @@ export const DashboardPage: React.FC = () => {
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button
               className="pl-btn"
-              onClick={syncPlaylists}
+              onClick={(e) => syncPlaylists(e.ctrlKey || e.metaKey)}
               disabled={syncing || !accountId}
-              title="Sync selected Spotify playlists to get new tracks"
+              title="Sync selected Spotify playlists to get new tracks (Ctrl+Click to force full sync)"
             >
               {syncing ? 'Syncing…' : 'Sync playlists'}
             </button>
+            <span className="pl-hint">(Ctrl+Click: force)</span>
             {syncResult && <span className="pl-note">{syncResult}</span>}
             <button
               className="pl-btn"

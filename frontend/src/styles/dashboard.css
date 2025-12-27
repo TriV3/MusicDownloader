@@ -144,6 +144,12 @@
   white-space: nowrap;
 }
 
+.pl-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
 /* Loading and error states */
 .dashboard-loading {
   display: flex;
