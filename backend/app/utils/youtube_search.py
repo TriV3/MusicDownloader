@@ -25,7 +25,26 @@ import concurrent.futures
 from .normalize import normalize_track
 from .ranking_service import RankingService
 
+try:
+    from .log_buffer import download_logs  # type: ignore
+except Exception:  # pragma: no cover
+    from utils.log_buffer import download_logs  # type: ignore
+
 logger = logging.getLogger(__name__)
+
+
+def _search_log(msg: str, level: str = "INFO") -> None:
+    """Log to both the standard logger and the in-memory log buffer."""
+    if level == "INFO":
+        logger.info(msg)
+    elif level == "WARN":
+        logger.warning(msg)
+    elif level == "ERROR":
+        logger.error(msg)
+    elif level == "DEBUG":
+        logger.debug(msg)
+    download_logs.append(level, f"[search] {msg}")
+
 
 def _ensure_debug_logger_level():
     try:
@@ -602,15 +621,7 @@ def search_youtube(
     if os.environ.get("YOUTUBE_SEARCH_FAKE") == "1":
         query = f"{artists} - {title}".strip()
         # Log the exact query we use in fake mode as well
-        try:
-            logger.info("YouTube search query: %s", query)
-        except Exception:
-            pass
-        # Ensure visibility in console regardless of logging config
-        # try:
-        #     print(f"[youtube_search] query: {query}")
-        # except Exception:
-        #     pass
+        _search_log(f"YouTube search query: {query}")
         raw_results = fake_results(query)
     else:
         queries = _build_search_queries(artists, title, prefer_extended=prefer_extended)
@@ -644,14 +655,7 @@ def search_youtube(
 
         for q in queries:
             # Log the exact query string sent to the provider
-            try:
-                logger.info("YouTube search query: %s", q)
-            except Exception:
-                pass
-            # try:
-            #     print(f"[youtube_search] query: {q}")
-            # except Exception:
-            #     pass
+            _search_log(f"YouTube search query: {q}")
 
             if provider == "yts_python" and VideosSearch is not None:
                 # Native pagination with youtube-search-python
@@ -785,7 +789,7 @@ def search_youtube(
                 if os.environ.get("YOUTUBE_SEARCH_DEBUG") == "1":
                     logger.debug("Normalized fallback raw results: %d", len(raw_results))
         if not raw_results and os.environ.get("YOUTUBE_SEARCH_FALLBACK_FAKE") == "1":
-            logger.info("Falling back to fake YouTube results for multi-queries: %s", ", ".join(queries[:3]))
+            _search_log(f"Falling back to fake YouTube results for multi-queries: {', '.join(queries[:3])}")
             raw_results = fake_results(f"{artists} {title}".strip())
     
     # Score all results - RankingService handles filtering via duration penalties
@@ -819,6 +823,14 @@ def search_youtube(
                     # Maintain ordering: re-sort
                     filtered_scored.sort(key=lambda s: (-s.score, s.external_id))
                 break
+    
+    # Log search results summary
+    if filtered_scored:
+        best = filtered_scored[0]
+        _search_log(f"Found {len(filtered_scored)} candidates, best: '{best.title}' (score={best.score:.2f}, channel={best.channel})")
+    else:
+        _search_log(f"No candidates found for '{artists} - {title}'", "WARN")
+    
     return filtered_scored
 
 

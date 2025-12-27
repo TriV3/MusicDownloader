@@ -97,6 +97,100 @@ async def list_downloads_with_tracks(
     return JSONResponse(content=jsonable_encoder(out))
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Worker Logs & Status API (must be before /{download_id} to avoid route conflicts)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/logs")
+async def get_worker_logs(
+    count: Optional[int] = Query(None, ge=1, le=1000, description="Number of lines to return (default: all in buffer)")
+):
+    """Get worker logs from the in-memory buffer.
+    
+    Returns the most recent log lines, up to the configured buffer size.
+    The buffer is a circular buffer, so older entries are discarded when full.
+    """
+    try:
+        from ...utils.log_buffer import download_logs  # type: ignore
+    except Exception:  # pragma: no cover
+        from utils.log_buffer import download_logs  # type: ignore
+    
+    lines = download_logs.get_lines(count)
+    size_bytes = download_logs.size_bytes()
+    
+    return {
+        "lines": lines,
+        "count": len(lines),
+        "max_lines": download_logs.max_lines,
+        "size_kb": round(size_bytes / 1024, 2)
+    }
+
+
+@router.post("/logs/clear")
+async def clear_worker_logs():
+    """Clear all worker logs from the in-memory buffer."""
+    try:
+        from ...utils.log_buffer import download_logs  # type: ignore
+    except Exception:  # pragma: no cover
+        from utils.log_buffer import download_logs  # type: ignore
+    
+    download_logs.clear()
+    return {"ok": True, "message": "Logs cleared"}
+
+
+@router.put("/logs/config")
+async def configure_logs(
+    max_lines: int = Query(..., ge=10, le=5000, description="Maximum number of lines to keep in buffer")
+):
+    """Configure the log buffer size.
+    
+    Changes take effect immediately. If reducing size, older entries may be discarded.
+    """
+    try:
+        from ...utils.log_buffer import download_logs  # type: ignore
+    except Exception:  # pragma: no cover
+        from utils.log_buffer import download_logs  # type: ignore
+    
+    old_max = download_logs.max_lines
+    download_logs.max_lines = max_lines
+    
+    return {
+        "ok": True,
+        "old_max_lines": old_max,
+        "new_max_lines": download_logs.max_lines
+    }
+
+
+@router.get("/status")
+async def get_worker_status():
+    """Get the current status of the download worker and queue."""
+    try:
+        from ...worker import downloads_worker as dw  # type: ignore
+    except Exception:  # pragma: no cover
+        from worker import downloads_worker as dw  # type: ignore
+    
+    worker_running = dw.download_queue is not None
+    queue_size = 0
+    active_tasks = 0
+    concurrency = 0
+    
+    if dw.download_queue:
+        queue_size = dw.download_queue.queue.qsize()
+        active_tasks = len([t for t in dw.download_queue._tasks if not t.done()])
+        concurrency = dw.download_queue.concurrency
+    
+    return {
+        "worker_running": worker_running,
+        "queue_size": queue_size,
+        "active_tasks": active_tasks,
+        "concurrency": concurrency
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Single Download Operations (/{download_id} routes must come after static paths)
+# ─────────────────────────────────────────────────────────────────────────────
+
 @router.get("/{download_id}", response_model=DownloadRead)
 async def get_download(download_id: int, session: AsyncSession = Depends(get_session)):
     item = await session.get(Download, download_id)

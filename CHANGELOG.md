@@ -6,6 +6,48 @@ Versioning scheme:
 - Versions follow semantic versioning for stable releases (1.0.0+) and `0.<phase>.<minor>` for development milestones.
 - Each tagged version represents the completion of a documented milestone.
 
+## 1.2.2 — Downloads Page Improvements (December 27, 2025)
+
+### 🐛 Bug Fixes
+
+- **Stale Running Status**: Fixed issue where tracks remained stuck in "running" status after server restart
+  - Downloads that were interrupted by server restart are now automatically reset to "failed" status
+  - Worker now calls `reset_stale_running_downloads()` on startup
+
+### ✨ New Features
+
+- **Auto-Refresh**: Downloads page now auto-refreshes every 2 seconds when there are pending or running downloads
+  - Automatically detects download completion and updates the UI
+  - Stops polling when all downloads are complete to save resources
+
+- **Worker Logs Panel**: New expandable logs panel to view download worker activity
+  - Displays real-time worker logs with timestamps and log levels (INFO, WARN, ERROR, DEBUG)
+  - Color-coded log levels for easy identification
+  - Shows buffer size in KB
+  - Clear and refresh buttons for log management
+  - Dark theme for better readability
+
+- **Worker Status Display**: Shows current worker status including:
+  - Running state (checkmark or hourglass icon)
+  - Queue size
+  - Active tasks count
+  - Concurrency setting
+
+### 🔧 Improvements
+
+- **In-Memory Log Buffer**: New configurable circular log buffer for worker logs
+  - Default 200 lines, configurable via `LOG_BUFFER_MAX_LINES` environment variable
+  - Range: 10-5000 lines
+  - Thread-safe implementation using `collections.deque`
+  - API endpoints to view, clear, and configure log buffer
+
+### 📝 New API Endpoints
+
+- `GET /api/v1/downloads/logs` — Get worker log lines with metadata
+- `POST /api/v1/downloads/logs/clear` — Clear the log buffer
+- `PUT /api/v1/downloads/logs/config?max_lines=N` — Configure buffer size
+- `GET /api/v1/downloads/status` — Get worker status (running, queue_size, active_tasks, concurrency)
+
 ## 1.2.1 — Spotify Playlist Sync Fix (December 27, 2025)
 
 ### 🐛 Bug Fixes

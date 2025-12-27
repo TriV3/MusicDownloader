@@ -15,10 +15,18 @@ try:  # package mode
     from ..core.config import settings  # type: ignore
     from ..db.session import async_session  # type: ignore
     from ..db.models.models import Download, DownloadStatus, Track, SearchCandidate, SearchProvider, LibraryFile, Playlist, PlaylistTrack, SourceProvider  # type: ignore
+    from .log_buffer import download_logs  # type: ignore
 except Exception:  # pragma: no cover
     from core.config import settings  # type: ignore
     from db.session import async_session  # type: ignore
     from db.models.models import Download, DownloadStatus, Track, SearchCandidate, SearchProvider, LibraryFile, Playlist, PlaylistTrack, SourceProvider  # type: ignore
+    from utils.log_buffer import download_logs  # type: ignore
+
+
+def _log(msg: str, level: str = "INFO") -> None:
+    """Log to console and the in-memory log buffer."""
+    print(f"[downloader] {msg}")
+    download_logs.append(level, f"[downloader] {msg}")
 
 
 @dataclass
@@ -282,7 +290,7 @@ async def _download_spotify_cover(cover_url: str, temp_dir: Path) -> Optional[Pa
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.get(cover_url)
             if response.status_code != 200:
-                print(f"[downloader] Failed to download cover: HTTP {response.status_code}")
+                _log(f"Failed to download cover: HTTP {response.status_code}", "WARN")
                 return None
             
             # Determine image extension from content-type or URL
@@ -303,7 +311,7 @@ async def _download_spotify_cover(cover_url: str, temp_dir: Path) -> Optional[Pa
             await asyncio.to_thread(cover_path.write_bytes, response.content)
             return cover_path
     except Exception as e:
-        print(f"[downloader] Error downloading Spotify cover: {e}")
+        _log(f"Error downloading Spotify cover: {e}", "ERROR")
         return None
 
 
@@ -339,7 +347,7 @@ async def _embed_cover_image(audio_file: Path, cover_file: Path, ffmpeg_path: st
         def _run_ffmpeg():
             result = subprocess.run(cmd, capture_output=True, text=True, check=False)
             if result.returncode != 0:
-                print(f"[downloader] ffmpeg embed cover failed: {result.stderr}")
+                _log(f"ffmpeg embed cover failed: {result.stderr}", "ERROR")
                 return False
             return True
         
@@ -354,11 +362,11 @@ async def _embed_cover_image(audio_file: Path, cover_file: Path, ffmpeg_path: st
             temp_output.replace(audio_file)
         
         await asyncio.to_thread(_replace)
-        print(f"[downloader] Successfully embedded Spotify cover into {audio_file.name}")
+        _log(f"Successfully embedded Spotify cover into {audio_file.name}")
         return True
         
     except Exception as e:
-        print(f"[downloader] Error embedding cover image: {e}")
+        _log(f"Error embedding cover image: {e}", "ERROR")
         # Clean up temp file if it exists
         try:
             if temp_output.exists():
@@ -544,7 +552,7 @@ async def perform_download(download_id: int) -> DownloadOutcome:
 
     # Fake mode
     if os.environ.get("DOWNLOAD_FAKE", "0") in {"1", "true", "TRUE", "True"}:
-        print(f"[downloader] FAKE mode -> creating placeholder at {out_path}")
+        _log(f"FAKE mode -> creating placeholder at {out_path}")
         # Overwrite existing file if present
         try:
             if out_path.exists():
@@ -692,15 +700,24 @@ async def perform_download(download_id: int) -> DownloadOutcome:
             metadata_args=pp_args,
             extractor_override=extractor_override,
         )
-        print(f"[downloader] Using yt-dlp={ytdlp_path} ffmpeg={ffmpeg_path}")
-        print(f"[downloader] Profile extractor_args={extractor_override or 'AUTO'} cmd: {' '.join(shlex.quote(c) for c in cmd_local)}")
+        _log(f"Using yt-dlp={ytdlp_path} ffmpeg={ffmpeg_path}")
+        _log(f"Profile extractor_args={extractor_override or 'AUTO'} cmd: {' '.join(shlex.quote(c) for c in cmd_local)}")
         try:
             res = subprocess.run(cmd_local, check=True, capture_output=True, text=True)
+            if res.stdout:
+                for line in res.stdout.strip().split("\n"):
+                    if line.strip():
+                        _log(f"yt-dlp: {line.strip()}")
             return True
         except FileNotFoundError as e:
+            _log(f"Executable not found: {e.filename}", "ERROR")
             raise RuntimeError(f"Executable not found: {e.filename}. Check YT_DLP_BIN/FFMPEG_BIN or PATH.") from e
         except subprocess.CalledProcessError as e:
             stderr = e.stderr or ""
+            if stderr:
+                for line in stderr.strip().split("\n"):
+                    if line.strip():
+                        _log(f"yt-dlp error: {line.strip()}", "ERROR")
             sabr_hint = any(k in stderr for k in ["SABR", "Did not get any data blocks", "po token", "missing a url"])
             # Try m4a fallback if mp3 preferred
             if preferred_fmt == "mp3":
@@ -717,13 +734,21 @@ async def perform_download(download_id: int) -> DownloadOutcome:
                     metadata_args=pp_args,
                     extractor_override=extractor_override,
                 )
-                print("[downloader] mp3 failed; retrying same profile with m4a")
-                print(f"[downloader] Running: {' '.join(shlex.quote(c) for c in alt_cmd)}")
+                _log("mp3 failed; retrying same profile with m4a", "WARN")
+                _log(f"Running: {' '.join(shlex.quote(c) for c in alt_cmd)}")
                 try:
-                    subprocess.run(alt_cmd, check=True, capture_output=True, text=True)
+                    res2 = subprocess.run(alt_cmd, check=True, capture_output=True, text=True)
+                    if res2.stdout:
+                        for line in res2.stdout.strip().split("\n"):
+                            if line.strip():
+                                _log(f"yt-dlp: {line.strip()}")
                     return True
                 except subprocess.CalledProcessError as e2:
                     stderr2 = e2.stderr or ""
+                    if stderr2:
+                        for line in stderr2.strip().split("\n"):
+                            if line.strip():
+                                _log(f"yt-dlp error: {line.strip()}", "ERROR")
                     sabr_hint = sabr_hint or any(k in stderr2 for k in ["SABR", "Did not get any data blocks", "po token", "missing a url"])
                     if sabr_hint:
                         last_error = e2
@@ -738,7 +763,7 @@ async def perform_download(download_id: int) -> DownloadOutcome:
 
     # Iterate profiles
     for idx, prof in enumerate(profiles, start=1):
-        print(f"[downloader] Trying profile {idx}/{len(profiles)} extractor_args={prof or 'AUTO'}")
+        _log(f"Trying profile {idx}/{len(profiles)} extractor_args={prof or 'AUTO'}")
         success = await asyncio.to_thread(_run_profile, prof)
         if success:
             break
@@ -770,7 +795,7 @@ async def perform_download(download_id: int) -> DownloadOutcome:
         except Exception:
             pass
         def _rename():
-            print(f"[downloader] Renaming {produced} -> {final_path}")
+            _log(f"Renaming {produced} -> {final_path}")
             produced.replace(final_path)
         await asyncio.to_thread(_rename)
         # If there was an older library file with a different extension, remove it to avoid duplicates
@@ -803,7 +828,7 @@ async def perform_download(download_id: int) -> DownloadOutcome:
                     size = out_path.stat().st_size
                     checksum = _sha256_file(out_path)
         except Exception as e:
-            print(f"[downloader] Failed to embed Spotify cover: {e}")
+            _log(f"Failed to embed Spotify cover: {e}", "ERROR")
     
     # Set file timestamps based on track metadata and playlist context
     await _set_file_timestamps(out_path, track, dl.track_id)

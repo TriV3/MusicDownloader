@@ -90,6 +90,9 @@ Frontend UX:
 		- `YOUTUBE_SEARCH_PAGE_STOP_THRESHOLD` (default 0.50) early stop when any candidate score exceeds this
 	- Provider timeout behavior: on timeout, the search returns an empty set (unless `YOUTUBE_SEARCH_FALLBACK_FAKE=1`).
 
+- Download Worker:
+	- `LOG_BUFFER_MAX_LINES` (default 200) maximum lines kept in the in-memory log buffer for worker logs (range: 10-5000).
+
 Install `yt-dlp` locally (e.g., `pip install yt-dlp`) for real searches; it's not yet pinned in `backend/requirements.txt` until download steps.
 
 ## Versioning

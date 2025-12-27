@@ -9,9 +9,17 @@ from typing import Optional
 try:
     from ..db.session import async_session  # type: ignore
     from ..db.models.models import Download, DownloadStatus  # type: ignore
+    from ..utils.log_buffer import download_logs  # type: ignore
 except Exception:  # pragma: no cover
     from db.session import async_session  # type: ignore
     from db.models.models import Download, DownloadStatus  # type: ignore
+    from utils.log_buffer import download_logs  # type: ignore
+
+
+def _log(level: str, msg: str) -> None:
+    """Log to both stdout and the in-memory buffer."""
+    print(f"[worker] {msg}")
+    download_logs.append(level, msg)
 
 
 @dataclass
@@ -29,10 +37,14 @@ class DownloadQueue:
 
     async def start(self) -> None:
         self._stopped.clear()
+        _log("INFO", f"Starting download worker with concurrency={self.concurrency}")
+        # Reset any stale "running" downloads from previous sessions
+        await reset_stale_running_downloads()
         for _ in range(self.concurrency):
             self._tasks.append(asyncio.create_task(self._worker_loop()))
 
     async def stop(self) -> None:
+        _log("INFO", "Stopping download worker...")
         self._stopped.set()
         # Wake any waiting getters so loops can notice the stop flag quickly
         try:
@@ -75,15 +87,15 @@ class DownloadQueue:
             pass
 
     async def _process_job(self, job: DownloadJob) -> None:
-        print(f"[worker] Starting job for download_id={job.download_id}")
+        _log("INFO", f"Starting job for download_id={job.download_id}")
         # Update status -> running
         async with async_session() as session:
             dl = await session.get(Download, job.download_id)
             if not dl:
-                print(f"[worker] Download row not found id={job.download_id}")
+                _log("WARN", f"Download row not found id={job.download_id}")
                 return
             if dl.status not in (DownloadStatus.queued, DownloadStatus.failed):
-                print(f"[worker] Skipping download id={job.download_id} with status={dl.status}")
+                _log("INFO", f"Skipping download id={job.download_id} with status={dl.status}")
                 return
             dl.status = DownloadStatus.running
             dl.started_at = datetime.utcnow()
@@ -93,7 +105,7 @@ class DownloadQueue:
         # Execute real download or simulate
         try:
             if self.simulate_seconds and self.simulate_seconds > 0:
-                print(f"[worker] Simulating download for id={job.download_id} seconds={self.simulate_seconds}")
+                _log("INFO", f"Simulating download for id={job.download_id} seconds={self.simulate_seconds}")
                 await asyncio.sleep(self.simulate_seconds)
                 outcome = None
             else:
@@ -111,7 +123,7 @@ class DownloadQueue:
                     dl.filesize_bytes = outcome.filesize_bytes
                     dl.checksum_sha256 = outcome.checksum_sha256
                 else:
-                    print(f"[worker] No outcome produced for id={job.download_id} (simulate or error earlier)")
+                    _log("INFO", f"No outcome produced for id={job.download_id} (simulate or error earlier)")
                 dl.status = DownloadStatus.done
                 dl.finished_at = datetime.utcnow()
                 # Upsert LibraryFile entry for this track/path
@@ -160,7 +172,7 @@ class DownloadQueue:
                                 if tr and (tr.duration_ms is None or tr.duration_ms == 0):
                                     tr.duration_ms = actual_duration_ms
                         except Exception as e:
-                            print(f"[worker] Failed to extract duration for {p}: {e}")
+                            _log("WARN", f"Failed to extract duration for {p}: {e}")
 
                         # Replicate into each Spotify playlist folder for this track (download once, copy to multiple playlists)
                         try:
@@ -214,7 +226,7 @@ class DownloadQueue:
                                         except Exception:
                                             pass  # If timestamp setting fails, continue
                                     except Exception as _ce:
-                                        print(f"[worker] Replication copy failed to {target}: {_ce}")
+                                        _log("WARN", f"Replication copy failed to {target}: {_ce}")
                                         continue
                                     # Upsert LibraryFile for replicated path
                                     res2 = await session.execute(_select(LibraryFile).where(LibraryFile.filepath == str(target)))
@@ -242,9 +254,9 @@ class DownloadQueue:
                                             exists=True,
                                         ))
                         except Exception as _e2:
-                            print(f"[worker] Failed to replicate into playlist folders: {_e2}")
+                            _log("WARN", f"Failed to replicate into playlist folders: {_e2}")
                 except Exception as _e:
-                    print(f"[worker] Failed to upsert LibraryFile for id={job.download_id}: {_e}")
+                    _log("WARN", f"Failed to upsert LibraryFile for id={job.download_id}: {_e}")
                 # If the track has no cover yet, set it from the YouTube candidate (or chosen YouTube) thumbnail
                 try:
                     from ..db.models.models import Track as _Track, SearchCandidate as _SC, SearchProvider as _SP  # type: ignore
@@ -277,10 +289,10 @@ class DownloadQueue:
                             if tr.cover_url != thumb_url:
                                 tr.cover_url = thumb_url
                 except Exception as _e:
-                    print(f"[worker] Failed to set cover for track {dl.track_id}: {_e}")
+                    _log("WARN", f"Failed to set cover for track {dl.track_id}: {_e}")
                 await session.flush()
                 await session.commit()
-                print(f"[worker] Completed download id={job.download_id} -> {dl.filepath}")
+                _log("INFO", f"Completed download id={job.download_id} -> {dl.filepath}")
         except Exception as e:
             async with async_session() as session:
                 dl = await session.get(Download, job.download_id)
@@ -291,7 +303,35 @@ class DownloadQueue:
                 dl.error_message = str(e) or "Worker error"
                 await session.flush()
                 await session.commit()
-            print(f"[worker] Failed download id={job.download_id}: {e}")
+            _log("ERROR", f"Failed download id={job.download_id}: {e}")
+
+
+async def reset_stale_running_downloads() -> int:
+    """Reset any downloads stuck in 'running' status back to 'failed'.
+    
+    This can happen if the worker was stopped abruptly or the app crashed.
+    Returns the count of reset downloads.
+    """
+    from sqlalchemy import update
+    
+    async with async_session() as session:
+        result = await session.execute(
+            update(Download)
+            .where(Download.status == DownloadStatus.running)
+            .values(
+                status=DownloadStatus.failed,
+                finished_at=datetime.utcnow(),
+                error_message="Reset: worker restarted while job was running"
+            )
+            .execution_options(synchronize_session=False)
+        )
+        count = result.rowcount or 0
+        await session.commit()
+    
+    if count > 0:
+        _log("WARN", f"Reset {count} stale 'running' download(s) to 'failed'")
+    
+    return count
 
 
 # Singleton queue instance (managed by app startup/shutdown)

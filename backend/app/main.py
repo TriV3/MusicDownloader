@@ -116,6 +116,28 @@ async def on_startup():
         logging.getLogger("backend.app").setLevel(level)
     except Exception:
         pass
+    
+    # Install log capture to route relevant logs to the in-memory buffer
+    try:
+        try:
+            from .utils.log_buffer import install_log_capture  # type: ignore
+        except Exception:
+            from utils.log_buffer import install_log_capture  # type: ignore
+        
+        # Capture logs from backend modules, httpx, and uvicorn errors
+        install_log_capture([
+            "backend",
+            "backend.app",
+            "backend.app.api",
+            "backend.app.utils.youtube_search",
+            "backend.app.utils.downloader",
+            "backend.app.worker",
+            "httpx",
+            "uvicorn.error",
+        ], level=logging.INFO)
+    except Exception:
+        pass
+    
     # Create tables (simple init, replace by migrations later)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

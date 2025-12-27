@@ -18,6 +18,20 @@ type Download = {
   track_artists?: string
 }
 
+type WorkerStatus = {
+  worker_running: boolean
+  queue_size: number
+  active_tasks: number
+  concurrency: number
+}
+
+type LogsResponse = {
+  lines: string[]
+  count: number
+  max_lines: number
+  size_kb: number
+}
+
 export const DownloadsPage: React.FC = () => {
   const [items, setItems] = React.useState<Download[]>([])
   const [loading, setLoading] = React.useState(false)
@@ -28,6 +42,14 @@ export const DownloadsPage: React.FC = () => {
   const [includeDownloaded, setIncludeDownloaded] = React.useState(false)
   const [ready, setReady] = React.useState<any[]>([])
   const [loadingReady, setLoadingReady] = React.useState(false)
+  
+  // Worker status and logs
+  const [workerStatus, setWorkerStatus] = React.useState<WorkerStatus | null>(null)
+  const [logs, setLogs] = React.useState<LogsResponse | null>(null)
+  const [showLogs, setShowLogs] = React.useState(false)
+  const [autoRefresh, setAutoRefresh] = React.useState(true)
+  const logsContainerRef = React.useRef<HTMLDivElement>(null)
+  const [logsAutoScroll, setLogsAutoScroll] = React.useState(true)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -42,15 +64,48 @@ export const DownloadsPage: React.FC = () => {
     }
   }, [])
 
-  React.useEffect(() => { load() }, [load])
-  // Removed continuous 1.5s polling. Use the Refresh buttons to update manually.
-  // Optional scaffold if you later want a toggle:
-  // const [autoRefresh, setAutoRefresh] = React.useState(false)
-  // React.useEffect(() => {
-  //   if (!autoRefresh) return
-  //   const id = setInterval(load, 5000)
-  //   return () => clearInterval(id)
-  // }, [autoRefresh, load])
+  const loadWorkerStatus = React.useCallback(async () => {
+    try {
+      const r = await fetch('/api/v1/downloads/status')
+      if (r.ok) setWorkerStatus(await r.json())
+    } catch {}
+  }, [])
+
+  const loadLogs = React.useCallback(async () => {
+    try {
+      const r = await fetch('/api/v1/downloads/logs')
+      if (r.ok) {
+        const data = await r.json()
+        setLogs(data)
+        // Auto-scroll to bottom only within the logs container (not the page)
+        if (logsAutoScroll && logsContainerRef.current) {
+          setTimeout(() => {
+            if (logsContainerRef.current) {
+              logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight
+            }
+          }, 50)
+        }
+      }
+    } catch {}
+  }, [logsAutoScroll])
+
+  React.useEffect(() => { load(); loadWorkerStatus() }, [load, loadWorkerStatus])
+
+  // Smart auto-refresh: poll when there are pending/running downloads
+  React.useEffect(() => {
+    if (!autoRefresh) return
+    
+    const hasPending = items.some(d => d.status === 'queued' || d.status === 'running')
+    if (!hasPending) return
+    
+    const interval = setInterval(() => {
+      load()
+      loadWorkerStatus()
+      if (showLogs) loadLogs()
+    }, 2000)
+    
+    return () => clearInterval(interval)
+  }, [autoRefresh, items, showLogs, load, loadWorkerStatus, loadLogs])
   const loadReady = React.useCallback(async () => {
     setLoadingReady(true)
     try {
@@ -130,6 +185,7 @@ export const DownloadsPage: React.FC = () => {
       if (r.ok) {
         alert('Download worker restarted successfully!')
         load()
+        loadWorkerStatus()
       } else {
         alert('Failed to restart worker: ' + r.status)
       }
@@ -139,11 +195,41 @@ export const DownloadsPage: React.FC = () => {
     }
   }
 
+  const clearLogs = async () => {
+    try {
+      await fetch('/api/v1/downloads/logs/clear', { method: 'POST' })
+      loadLogs()
+    } catch {}
+  }
+
+  const toggleLogs = () => {
+    if (!showLogs) {
+      loadLogs()
+    }
+    setShowLogs(!showLogs)
+  }
+
+  // Count downloads by status
+  const pendingCount = items.filter(d => d.status === 'queued' || d.status === 'running').length
+  const runningCount = items.filter(d => d.status === 'running').length
+
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <h2 style={{ margin: 0 }}>Downloads</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {workerStatus && (
+            <span style={{ fontSize: '0.85em', color: workerStatus.worker_running ? '#4caf50' : '#f44336', marginRight: 8 }}>
+              Worker: {workerStatus.worker_running ? `Running (${workerStatus.active_tasks}/${workerStatus.concurrency} tasks, ${workerStatus.queue_size} queued)` : 'Stopped'}
+            </span>
+          )}
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.9em' }}>
+            <input type='checkbox' checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} />
+            Auto-refresh {pendingCount > 0 && <span style={{ color: '#2196f3' }}>({pendingCount} pending)</span>}
+          </label>
+          <button onClick={toggleLogs} style={{ background: showLogs ? '#2196f3' : '#9e9e9e', color: 'white', border: 'none', padding: '8px 16px', borderRadius: 4, cursor: 'pointer' }}>
+            {showLogs ? 'Hide Logs' : 'Show Logs'}
+          </button>
           <button onClick={stopAllDownloads} style={{ background: '#f44336', color: 'white', border: 'none', padding: '8px 16px', borderRadius: 4, cursor: 'pointer' }}>
             Stop All Downloads
           </button>
@@ -152,6 +238,42 @@ export const DownloadsPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Worker Logs Panel */}
+      {showLogs && (
+        <div style={{ border: '1px solid #333', borderRadius: 6, background: '#1e1e1e', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#333', borderBottom: '1px solid #444' }}>
+            <span style={{ color: '#fff', fontWeight: 500 }}>
+              Worker Logs {logs && <span style={{ color: '#888', fontSize: '0.85em' }}>({logs.count}/{logs.max_lines} lines, {logs.size_kb} KB)</span>}
+            </span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.8em', color: '#aaa' }}>
+                <input type='checkbox' checked={logsAutoScroll} onChange={e => setLogsAutoScroll(e.target.checked)} />
+                Auto-scroll
+              </label>
+              <button onClick={loadLogs} style={{ background: '#555', color: 'white', border: 'none', padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontSize: '0.85em' }}>
+                Refresh
+              </button>
+              <button onClick={clearLogs} style={{ background: '#666', color: 'white', border: 'none', padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontSize: '0.85em' }}>
+                Clear
+              </button>
+            </div>
+          </div>
+          <div ref={logsContainerRef} style={{ maxHeight: 300, overflow: 'auto', padding: 12, fontFamily: 'monospace', fontSize: '0.85em', color: '#ddd', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+            {logs?.lines.length === 0 && <span style={{ color: '#888' }}>No logs yet.</span>}
+            {logs?.lines.map((line, i) => {
+              const isError = line.includes('[ERROR]')
+              const isWarn = line.includes('[WARN]')
+              return (
+                <div key={i} style={{ color: isError ? '#f44336' : isWarn ? '#ff9800' : '#ddd', marginBottom: 2 }}>
+                  {line}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       <div style={{ border: '1px solid #ddd', padding: 10, borderRadius: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <h3 style={{ margin: 0 }}>Ready to download</h3>
