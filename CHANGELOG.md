@@ -6,6 +6,24 @@ Versioning scheme:
 - Versions follow semantic versioning for stable releases (1.0.0+) and `0.<phase>.<minor>` for development milestones.
 - Each tagged version represents the completion of a documented milestone.
 
+## 1.2.3 — UI Improvements (December 27, 2025)
+
+### ✨ New Features
+
+- **Force Sync**: Dashboard "Sync playlists" button now supports Ctrl+Click to force a full sync, bypassing snapshot checks
+  - Useful when playlists appear unchanged but need to be re-synced
+  - Hint displayed next to the button
+
+### 🔧 Improvements
+
+- **Downloads Page Restructured**:
+  - Removed redundant "Ready to download" section (use Dashboard instead)
+  - New "Active Downloads" section with blue border showing all running/queued downloads without limit
+  - "Recent History" section showing last 50 completed downloads
+  - Compact "Manual enqueue" bar for adding tracks manually
+  - Increased API limit to 200 items to see all active downloads
+  - Error messages truncated to 100 characters for better readability
+
 ## 1.2.2 — Downloads Page Improvements (December 27, 2025)
 
 ### 🐛 Bug Fixes

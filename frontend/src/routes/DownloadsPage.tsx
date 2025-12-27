@@ -39,9 +39,6 @@ export const DownloadsPage: React.FC = () => {
   const [enqueueCandidateId, setEnqueueCandidateId] = React.useState('')
   const [trackQuery, setTrackQuery] = React.useState('')
   const [trackOptions, setTrackOptions] = React.useState<any[]>([])
-  const [includeDownloaded, setIncludeDownloaded] = React.useState(false)
-  const [ready, setReady] = React.useState<any[]>([])
-  const [loadingReady, setLoadingReady] = React.useState(false)
   
   // Worker status and logs
   const [workerStatus, setWorkerStatus] = React.useState<WorkerStatus | null>(null)
@@ -54,10 +51,10 @@ export const DownloadsPage: React.FC = () => {
   const load = React.useCallback(async () => {
     setLoading(true)
     try {
-      const r = await fetch('/api/v1/downloads/with_tracks?limit=30')
+      const r = await fetch('/api/v1/downloads/with_tracks?limit=200')
       if (!r.ok) return
       setItems(await r.json())
-      // Auto-cleanup old downloads (keep only 30 most recent)
+      // Auto-cleanup old downloads (keep only recent)
       fetch('/api/v1/downloads/cleanup', { method: 'POST' }).catch(() => {})
     } finally {
       setLoading(false)
@@ -106,20 +103,6 @@ export const DownloadsPage: React.FC = () => {
     
     return () => clearInterval(interval)
   }, [autoRefresh, items, showLogs, load, loadWorkerStatus, loadLogs])
-  const loadReady = React.useCallback(async () => {
-    setLoadingReady(true)
-    try {
-      const r = await fetch('/api/v1/tracks/ready_for_download?include_downloaded=' + (includeDownloaded ? 'true' : 'false'))
-      if (!r.ok) return
-      setReady(await r.json())
-    } finally {
-      setLoadingReady(false)
-    }
-  }, [includeDownloaded])
-
-  React.useEffect(() => {
-    loadReady()
-  }, [loadReady])
 
   // Lookup tracks by text (title/artists)
   const searchTracks = React.useCallback(async () => {
@@ -128,13 +111,6 @@ export const DownloadsPage: React.FC = () => {
     if (r.ok) setTrackOptions(await r.json())
   }, [trackQuery])
   React.useEffect(() => { const id = setTimeout(searchTracks, 250); return () => clearTimeout(id) }, [trackQuery, searchTracks])
-
-  const enqueueTrack = async (trackId: number) => {
-    const r = await fetch('/api/v1/downloads/enqueue?track_id=' + trackId, { method: 'POST' })
-    if (r.ok) {
-      load(); loadReady()
-    }
-  }
 
   const enqueue = async () => {
     const params = new URLSearchParams({ track_id: enqueueTrackId })
@@ -210,8 +186,10 @@ export const DownloadsPage: React.FC = () => {
   }
 
   // Count downloads by status
-  const pendingCount = items.filter(d => d.status === 'queued' || d.status === 'running').length
+  const activeDownloads = items.filter(d => d.status === 'queued' || d.status === 'running')
+  const completedDownloads = items.filter(d => d.status !== 'queued' && d.status !== 'running').slice(0, 50)
   const runningCount = items.filter(d => d.status === 'running').length
+  const queuedCount = items.filter(d => d.status === 'queued').length
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
@@ -225,7 +203,7 @@ export const DownloadsPage: React.FC = () => {
           )}
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.9em' }}>
             <input type='checkbox' checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} />
-            Auto-refresh {pendingCount > 0 && <span style={{ color: '#2196f3' }}>({pendingCount} pending)</span>}
+            Auto-refresh {activeDownloads.length > 0 && <span style={{ color: '#2196f3' }}>({activeDownloads.length} active)</span>}
           </label>
           <button onClick={toggleLogs} style={{ background: showLogs ? '#2196f3' : '#9e9e9e', color: 'white', border: 'none', padding: '8px 16px', borderRadius: 4, cursor: 'pointer' }}>
             {showLogs ? 'Hide Logs' : 'Show Logs'}
@@ -274,36 +252,10 @@ export const DownloadsPage: React.FC = () => {
         </div>
       )}
 
-      <div style={{ border: '1px solid #ddd', padding: 10, borderRadius: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <h3 style={{ margin: 0 }}>Ready to download</h3>
-          <button onClick={loadReady} disabled={loadingReady}>{loadingReady ? 'Loading…' : 'Refresh'}</button>
-        </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
-          <thead>
-            <tr style={{ textAlign: 'left' }}>
-              <th>Track ID</th>
-              <th>Title</th>
-              <th>Artists</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ready.map((t: any) => (
-              <tr key={t.id}>
-                <td>{t.id}</td>
-                <td>{t.title}</td>
-                <td>{t.artists}</td>
-                <td><button onClick={() => enqueueTrack(t.id)}>Enqueue</button></td>
-              </tr>
-            ))}
-            {ready.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', padding: 8 }}>No tracks ready</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      {/* Manual enqueue section */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', padding: '8px 12px', background: '#f5f5f5', borderRadius: 6 }}>
+        <span style={{ fontSize: '0.9em', fontWeight: 500 }}>Manual enqueue:</span>
         <div style={{ position: 'relative', display: 'inline-block' }}>
-          <div style={{ fontSize: 12, color: '#666' }}>Find track</div>
           <input placeholder='Type title or artist' value={trackQuery} onChange={e => setTrackQuery(e.target.value)} style={{ minWidth: 240 }} />
           {trackOptions.length > 0 && (
             <div style={{ border: '1px solid #ddd', maxHeight: 180, overflow: 'auto', background: '#fff', position: 'absolute', zIndex: 1, top: '100%', left: 0, right: 0 }}>
@@ -315,15 +267,87 @@ export const DownloadsPage: React.FC = () => {
             </div>
           )}
         </div>
-        <input placeholder='Candidate ID (optional)' value={enqueueCandidateId} onChange={e => setEnqueueCandidateId(e.target.value)} />
+        <input placeholder='Candidate ID (opt.)' value={enqueueCandidateId} onChange={e => setEnqueueCandidateId(e.target.value)} style={{ width: 120 }} />
         <button onClick={enqueue} disabled={!enqueueTrackId}>Enqueue</button>
-        <button onClick={load} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <input type='checkbox' checked={includeDownloaded} onChange={e => setIncludeDownloaded(e.target.checked)} /> Include downloaded
-        </label>
       </div>
+
+      {/* Active Downloads - Running + Queued */}
+      {activeDownloads.length > 0 && (
+        <div style={{ border: '2px solid #2196f3', borderRadius: 6, overflow: 'hidden' }}>
+          <h3 style={{ margin: 0, padding: 12, background: '#2196f3', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Active Downloads</span>
+            <span style={{ fontSize: '0.85em', fontWeight: 400 }}>
+              {runningCount} running, {queuedCount} queued
+            </span>
+          </h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', background: '#e3f2fd' }}>
+                <th style={{ padding: '8px 12px', borderBottom: '1px solid #bbdefb' }}>Track</th>
+                <th style={{ padding: '8px 12px', borderBottom: '1px solid #bbdefb' }}>Status</th>
+                <th style={{ padding: '8px 12px', borderBottom: '1px solid #bbdefb' }}>Started</th>
+                <th style={{ padding: '8px 12px', borderBottom: '1px solid #bbdefb' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activeDownloads.map(d => {
+                const statusColor = d.status === 'running' ? '#2196f3' : '#ff9800'
+                const canCancel = d.status === 'queued'
+                return (
+                  <tr key={d.id} style={{ borderBottom: '1px solid #e3f2fd' }}>
+                    <td style={{ padding: '8px 12px' }}>
+                      <div style={{ fontWeight: 500 }}>{d.track_artists ?? 'Unknown'}</div>
+                      <div style={{ fontSize: '0.9em', color: '#666' }}>{d.track_title ?? 'Unknown Title'}</div>
+                    </td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <span style={{ 
+                        padding: '4px 8px', 
+                        borderRadius: 4, 
+                        background: statusColor + '20',
+                        color: statusColor,
+                        fontSize: '0.9em',
+                        fontWeight: 500
+                      }}>
+                        {d.status === 'running' ? '⏳ downloading…' : '⏸ queued'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '8px 12px', fontSize: '0.9em', color: '#666' }}>
+                      {d.started_at ? new Date(d.started_at).toLocaleTimeString() : '-'}
+                    </td>
+                    <td style={{ padding: '8px 12px' }}>
+                      {canCancel && (
+                        <button 
+                          onClick={() => cancelDownload(d.id)}
+                          style={{ 
+                            background: '#f44336', 
+                            color: 'white', 
+                            border: 'none', 
+                            padding: '4px 12px', 
+                            borderRadius: 4, 
+                            cursor: 'pointer',
+                            fontSize: '0.85em'
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Completed Downloads History */}
       <div style={{ border: '1px solid #ddd', borderRadius: 6, overflow: 'hidden' }}>
-        <h3 style={{ margin: 0, padding: 12, background: '#f5f5f5', borderBottom: '1px solid #ddd' }}>Recent Downloads (Last 30)</h3>
+        <h3 style={{ margin: 0, padding: 12, background: '#f5f5f5', borderBottom: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Recent History</span>
+          <span style={{ fontSize: '0.85em', fontWeight: 400, color: '#666' }}>
+            Last {completedDownloads.length} completed
+          </span>
+        </h3>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ textAlign: 'left', background: '#fafafa' }}>
@@ -331,19 +355,16 @@ export const DownloadsPage: React.FC = () => {
               <th style={{ padding: '8px 12px', borderBottom: '1px solid #ddd' }}>Status</th>
               <th style={{ padding: '8px 12px', borderBottom: '1px solid #ddd' }}>Time</th>
               <th style={{ padding: '8px 12px', borderBottom: '1px solid #ddd' }}>Error</th>
-              <th style={{ padding: '8px 12px', borderBottom: '1px solid #ddd' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {items.map(d => {
-              const statusColor = d.status === 'done' ? '#4caf50' : d.status === 'failed' ? '#f44336' : d.status === 'running' ? '#2196f3' : d.status === 'already' ? '#9e9e9e' : '#ff9800'
-              const canCancel = d.status === 'queued'
+            {completedDownloads.map(d => {
+              const statusColor = d.status === 'done' ? '#4caf50' : d.status === 'failed' ? '#f44336' : d.status === 'already' ? '#9e9e9e' : '#ff9800'
               return (
                 <tr key={d.id} style={{ borderBottom: '1px solid #eee' }}>
                   <td style={{ padding: '8px 12px' }}>
                     <div style={{ fontWeight: 500 }}>{d.track_artists ?? 'Unknown'}</div>
                     <div style={{ fontSize: '0.9em', color: '#666' }}>{d.track_title ?? 'Unknown Title'}</div>
-                    <div style={{ fontSize: '0.85em', color: '#999' }}>Track #{d.track_id}</div>
                   </td>
                   <td style={{ padding: '8px 12px' }}>
                     <span style={{ 
@@ -366,40 +387,22 @@ export const DownloadsPage: React.FC = () => {
                     {d.error_message ? (
                       <div style={{ 
                         color: '#f44336',
-                        fontSize: '0.9em',
+                        fontSize: '0.85em',
                         whiteSpace: 'pre-wrap',
                         wordBreak: 'break-word',
-                        maxWidth: 500
+                        maxWidth: 400
                       }}>
-                        {d.error_message}
+                        {d.error_message.length > 100 ? d.error_message.substring(0, 100) + '…' : d.error_message}
                       </div>
                     ) : '-'}
-                  </td>
-                  <td style={{ padding: '8px 12px' }}>
-                    {canCancel && (
-                      <button 
-                        onClick={() => cancelDownload(d.id)}
-                        style={{ 
-                          background: '#f44336', 
-                          color: 'white', 
-                          border: 'none', 
-                          padding: '4px 12px', 
-                          borderRadius: 4, 
-                          cursor: 'pointer',
-                          fontSize: '0.85em'
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    )}
                   </td>
                 </tr>
               )
             })}
-            {items.length === 0 && (
+            {completedDownloads.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ textAlign: 'center', padding: 20, color: '#999' }}>
-                  No downloads yet
+                <td colSpan={4} style={{ textAlign: 'center', padding: 20, color: '#999' }}>
+                  No completed downloads yet
                 </td>
               </tr>
             )}
