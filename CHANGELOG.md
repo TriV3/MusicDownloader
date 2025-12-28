@@ -6,6 +6,37 @@ Versioning scheme:
 - Versions follow semantic versioning for stable releases (1.0.0+) and `0.<phase>.<minor>` for development milestones.
 - Each tagged version represents the completion of a documented milestone.
 
+## 1.2.5 — Deno Runtime for yt-dlp (December 28, 2025)
+
+### 🔧 Improvements
+
+- **Deno Runtime Added**: Docker image now includes Deno JavaScript runtime required by yt-dlp 2025.12+ for YouTube signature solving
+  - Fixes "Signature solving failed" and "n challenge solving failed" errors
+  - Required for downloading videos that use YouTube's obfuscated streaming URLs
+- **Cookie Export Instructions**: Updated to recommend browser extensions (HttpOnly cookies cannot be exported via JavaScript)
+
+## 1.2.4 — YouTube Cookies Support (December 27, 2025)
+
+### ✨ New Features
+
+- **YouTube Cookies Support**: New Settings page to upload YouTube cookies for age-restricted content
+  - Upload cookies in Netscape format directly from the UI
+  - Cookie validation: checks for required authentication cookies (`__Secure-1PSID`, `__Secure-3PSID`, `LOGIN_INFO`)
+  - Test button to verify cookies work with yt-dlp against an age-restricted video
+  - Delete and refresh cookies when they expire
+  - API endpoints: `GET/POST/DELETE /api/v1/settings/cookies`, `GET /cookies/check`, `POST /cookies/test`
+
+- **Settings Page**: New dedicated settings page accessible from navigation menu
+  - YouTube cookies configuration with status indicator
+  - Real-time validation showing which required cookies are present/missing
+  - Expandable help section with step-by-step instructions for exporting cookies
+
+### 🔧 Improvements
+
+- **yt-dlp Updated**: Upgraded from 2025.09.05 to 2025.12.8 to fix compatibility issues
+- **Cookies in Downloads**: Downloader now uses configured cookies for age-restricted videos
+- **Navigation**: Added Settings link in header navigation
+
 ## 1.2.3 — UI Improvements (December 27, 2025)
 
 ### ✨ New Features

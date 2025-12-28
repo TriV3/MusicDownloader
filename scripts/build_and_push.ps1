@@ -9,7 +9,7 @@ Param(
 
 if (-not $RegistryHost) { $RegistryHost = '192.168.2.5:5000' }
 if (-not $ImageName) { $ImageName = 'music-downloader' }
-if (-not $YtDlpVersion) { $YtDlpVersion = '2025.09.05' }
+# YT_DLP_VERSION: if not set, Dockerfile default is used
 
 if (-not $ImageVersion) {
   $versionFile = Join-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath '..') -ChildPath 'VERSION'
@@ -43,11 +43,13 @@ $imageRef = "${RegistryHost}/${ImageName}:${ImageVersion}"
 $latestRef = "${RegistryHost}/${ImageName}:latest"
 
 if ($doBuild) {
-  Write-Host "[build] Building $imageRef (yt-dlp $YtDlpVersion)" -ForegroundColor Cyan
-  docker build `
-    --build-arg YT_DLP_VERSION=$YtDlpVersion `
-    -t $imageRef `
-    -t $latestRef .
+  Write-Host "[build] Building $imageRef" -ForegroundColor Cyan
+  $buildArgs = @('-t', $imageRef, '-t', $latestRef, '.')
+  if ($YtDlpVersion) {
+    Write-Host "[build] Using yt-dlp version: $YtDlpVersion" -ForegroundColor Yellow
+    $buildArgs = @('--build-arg', "YT_DLP_VERSION=$YtDlpVersion") + $buildArgs
+  }
+  docker build @buildArgs
 }
 
 if ($doPush) {

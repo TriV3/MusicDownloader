@@ -27,7 +27,7 @@ ENV PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-ARG YT_DLP_VERSION=2025.09.05
+ARG YT_DLP_VERSION=2025.12.8
 
 WORKDIR /app
 
@@ -54,7 +54,7 @@ LABEL org.opencontainers.image.title="music_downloader" \
       org.opencontainers.image.source="https://example.local/your-repo" \
       org.opencontainers.image.licenses="MIT"
 
-ARG YT_DLP_VERSION=2025.09.05
+ARG YT_DLP_VERSION=2025.12.23
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -63,10 +63,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Only the runtime binaries (ffmpeg) are needed; yt-dlp is provided by pip in the venv
+# Only the runtime binaries (ffmpeg, deno for yt-dlp EJS) are needed
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Deno (required by yt-dlp for YouTube signature solving)
+RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh
+ENV PATH="/usr/local/bin:${PATH}"
 
 # Copy pre-built Python environment
 COPY --from=backend-builder /opt/venv /opt/venv

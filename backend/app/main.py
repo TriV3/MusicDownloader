@@ -38,6 +38,7 @@ try:
     from .core.config import settings  # type: ignore
     from .api.v1.downloads import router as downloads_router  # type: ignore
     from .api.v1.library import router as library_router, stream_router  # type: ignore
+    from .api.v1.settings import router as settings_router  # type: ignore
     from .worker.downloads_worker import download_queue, DownloadQueue  # type: ignore
 except Exception:  # pragma: no cover
     from api.v1.health import router as health_router  # type: ignore
@@ -54,6 +55,7 @@ except Exception:  # pragma: no cover
     from core.config import settings  # type: ignore
     from api.v1.downloads import router as downloads_router  # type: ignore
     from api.v1.library import router as library_router, stream_router  # type: ignore
+    from api.v1.settings import router as settings_router  # type: ignore
     from worker.downloads_worker import download_queue, DownloadQueue  # type: ignore
 
 tags_metadata = [
@@ -362,6 +364,7 @@ app.include_router(oauth_spotify_router, prefix="/api/v1")
 app.include_router(downloads_router, prefix="/api/v1")
 app.include_router(library_router, prefix="/api/v1")
 app.include_router(stream_router, prefix="/api/v1")
+app.include_router(settings_router, prefix="/api/v1")
 
 # Temporary debug endpoint for diagnosing empty track list rendering
 from fastapi import Depends  # type: ignore

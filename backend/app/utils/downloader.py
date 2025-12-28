@@ -451,6 +451,17 @@ def _resolve_extra_args() -> list[str]:
         return [p for p in raw.split() if p]
 
 
+def _resolve_cookies_args() -> list[str]:
+    """Resolve cookies arguments for yt-dlp from environment variables."""
+    cookies_file = os.environ.get("YT_DLP_COOKIES_FILE", "")
+    if cookies_file and Path(cookies_file).exists():
+        return ["--cookies", cookies_file]
+    cookies_from_browser = os.environ.get("YT_DLP_COOKIES_FROM_BROWSER", "")
+    if cookies_from_browser:
+        return ["--cookies-from-browser", cookies_from_browser]
+    return []
+
+
 def _build_ytdlp_command(
     ytdlp_path: str,
     ffmpeg_path: str,
@@ -476,6 +487,12 @@ def _build_ytdlp_command(
     extractor_args = extractor_override if extractor_override is not None else _resolve_extractor_args()
     if extractor_args:
         parts.extend(["--extractor-args", extractor_args])
+    # Enable remote components for JavaScript challenge solving (required for YouTube)
+    parts.extend(["--remote-components", "ejs:github"])
+    # Add cookies if configured
+    cookies_args = _resolve_cookies_args()
+    if cookies_args:
+        parts.extend(cookies_args)
     # Append any global extra args from env (e.g., --force-ipv4 -f bestaudio ...)
     extra_args = _resolve_extra_args()
     if extra_args:

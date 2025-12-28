@@ -94,12 +94,16 @@ export const Header: React.FC = () => {
           >
             Downloads
           </Link>
+          <Link 
+            to="/settings" 
+            className={`nav-link ${isActive('/settings') ? 'active' : ''}`}
+            onClick={closeMobileMenu}
+          >
+            Settings
+          </Link>
         </nav>
 
         <div className="header-actions">
-          <button className="action-btn secondary desktop-only">
-            Settings
-          </button>
           <button 
             ref={buttonRef}
             className="mobile-menu-btn" 

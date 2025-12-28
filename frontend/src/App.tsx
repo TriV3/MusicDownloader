@@ -11,6 +11,7 @@ import ImportPage from './routes/ImportPage'
 import ToolsPage from './routes/ToolsPage'
 import TrackDetailPage from './routes/TrackDetailPage'
 import DownloadsPage from './routes/DownloadsPage'
+import SettingsPage from './routes/SettingsPage'
 import './styles/globals.css'
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="/import" element={<ImportPage />} />
           <Route path="/tools" element={<ToolsPage />} />
           <Route path="/downloads" element={<DownloadsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <GlobalAudioPlayer />
